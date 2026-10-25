@@ -1,0 +1,17 @@
+services:
+  mentor:
+    build: .
+    container_name: mentor
+    restart: unless-stopped
+    # No state, never root.
+    user: "99:100"
+    ports:
+      # One address only (the LAN IP on Uranus): anyone who can reach Mentor can spend its API key.
+      - "${MENTOR_BIND:-127.0.0.1}:${MENTOR_PORT:-8800}:8800"
+    environment:
+      # Without a key Mentor still starts, and /v1/pick answers 503.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MENTOR_MODEL: ${MENTOR_MODEL:-}
+    labels:
+      net.unraid.docker.webui: "http://[IP]:[PORT:8800]/healthz"
+      net.unraid.docker.icon: "http://192.168.2.222:8797/mentor/plain/unraid-icon.png"
