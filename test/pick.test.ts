@@ -53,14 +53,17 @@ describe('prompt', () => {
 	test('the request carries the filters and what was already suggested', () => {
 		expect(requestText(request)).toBe(
 			'Request: "something funny under two hours"\nFilters set on screen: under 120 minutes.\n' +
-				'Already suggested, leave these ids out: 3\nPick up to 2.\nSuggest up to 2 movies the household does not have.',
+				'Already suggested, leave these ids out: 3\nPick up to 2.\nSuggest 2 movies the household does not have, fewer only when fewer fit.',
 		);
 	});
 
-	test('an empty library is allowed only with suggestions wanted', () => {
+	test('no picks to make is allowed only with suggestions wanted', () => {
 		const body = { request: 'space', kind: 'movie', titles: [] };
 		expect(PickRequest.safeParse(body).success).toBe(false);
 		expect(PickRequest.safeParse({ ...body, suggest: 3 }).success).toBe(true);
+		const suggestionsOnly = PickRequest.parse({ ...body, titles: [{ id: '1', title: 'Moon' }], count: 0, suggest: 3 });
+		expect(requestText(suggestionsOnly)).toEndWith('Pick none.\nSuggest 3 movies the household does not have, fewer only when fewer fit.');
+		expect(PickRequest.safeParse({ ...suggestionsOnly, suggest: 0 }).success).toBe(false);
 	});
 });
 

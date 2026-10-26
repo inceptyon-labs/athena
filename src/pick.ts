@@ -41,7 +41,8 @@ export const PickRequest = z
 	.object({
 		request: z.string().trim().min(1).max(500),
 		kind: z.enum(['movie', 'show']),
-		count: z.number().int().min(1).max(12).default(9),
+		/** 0 asks for suggestions only. */
+		count: z.number().int().min(0).max(12).default(9),
 		/** Empty when nothing in the library fits and only suggestions are wanted. */
 		titles: z.array(Title).max(5000),
 		taste: z.object({ loved: Names, liked: Names, disliked: Names, recent: Names }).optional(),
@@ -54,7 +55,7 @@ export const PickRequest = z
 		maxMinutes: z.number().int().positive().optional(),
 		genre: z.string().max(60).optional(),
 	})
-	.refine((req) => req.titles.length > 0 || req.suggest > 0, {
+	.refine((req) => (req.count > 0 && req.titles.length > 0) || req.suggest > 0, {
 		message: 'Send titles to pick from, or ask for suggestions.',
 		path: ['titles'],
 	});
@@ -89,9 +90,9 @@ Picks are the titles from the library that best fit the request.
 - Only use ids from the library list. Never pick anything that is not on it.
 - What the request asks for is a requirement: mood, genre, length, era, rating, who is watching, what to avoid. The viewer's taste only decides between titles that fit equally well.
 - Lengths are in minutes. For a TV show, the length is a typical episode.
-- Judge a minimum rating by the scores on the list. A title without that score can still be picked when you are confident it meets it.
+- Judge a minimum rating by the scores on the list: a title listed below it never fits. A title without that score can still be picked when you are confident it meets it.
 - Unless the request is narrow, make the picks different from each other.
-- Best fit first. Return fewer picks than asked when fewer fit, and none when nothing does.
+- Best fit first. Return fewer picks than asked when fewer fit, and none when nothing does. Never fill the count with a title that misses part of the request.
 
 Suggestions are titles the household does not have, for them to request. Give them only when asked for some.
 - Real, released titles of the same kind as the library, each with its release year. Never one on the library list.
@@ -176,8 +177,12 @@ export function requestText(req: PickRequest): string {
 	].filter(Boolean);
 	if (filters.length) parts.push(`Filters set on screen: ${filters.join('; ')}.`);
 	if (req.exclude?.length) parts.push(`Already suggested, leave these ids out: ${req.exclude.join(', ')}`);
-	parts.push(req.titles.length ? `Pick up to ${req.count}.` : 'Pick none.');
-	parts.push(req.suggest ? `Suggest up to ${req.suggest} ${noun(req)} the household does not have.` : 'Suggest none.');
+	parts.push(req.count && req.titles.length ? `Pick up to ${req.count}.` : 'Pick none.');
+	parts.push(
+		req.suggest
+			? `Suggest ${req.suggest} ${noun(req)} the household does not have, fewer only when fewer fit.`
+			: 'Suggest none.',
+	);
 	return parts.join('\n');
 }
 
@@ -250,7 +255,8 @@ export async function pick(client: Anthropic, model: string, req: PickRequest): 
 	const response = await client.messages
 		.parse({
 			model,
-			max_tokens: 2048,
+			// Thinking counts toward the cap.
+			max_tokens: 4096,
 			system: SYSTEM,
 			// Choosing from a list needs little thinking, and the viewer is waiting.
 			output_config: { effort: 'low', format: zodOutputFormat(PickResult) },

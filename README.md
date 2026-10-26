@@ -46,8 +46,11 @@ Rotten Tomatoes `critics` and `audience` in percent, and `imdb` and `tmdb` out o
 `disliked`). `exclude` lists ids already on screen. `suggest` asks for that many
 titles outside the library, and `discover` is Seerr's trending and recent list for
 Claude to choose from, since Haiku doesn't know the newest releases. `maxMinutes`
-and `genre` are the screen's filters, which `titles` already meet. `titles` can be
-empty when `suggest` is set.
+and `genre` are the screen's filters, which `titles` already meet. `count: 0` asks
+for suggestions only, and `titles` can then be empty. Ithaca sends the picks and
+the suggestions as two requests at once: Haiku 5.5 thinks before answering, and
+one combined answer takes 10 to 13 seconds, so the library picks don't wait for
+the suggestions.
 
 The answer:
 
