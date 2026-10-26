@@ -12,6 +12,8 @@ services:
       # Without a key Mentor still starts, and /v1/pick answers 503.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MENTOR_MODEL: ${MENTOR_MODEL:-}
+      # With it, library picks go to Jev and only suggestions to Claude.
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
     labels:
       net.unraid.docker.webui: "http://[IP]:[PORT:8800]/healthz"
       net.unraid.docker.icon: "http://192.168.2.222:8797/mentor/plain/unraid-icon.png"

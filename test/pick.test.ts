@@ -131,7 +131,7 @@ describe('POST /v1/pick', () => {
 
 	test('the health check says what it is', async () => {
 		const response = await createApp({ client: null, model: 'test' }).request('/healthz');
-		expect(await response.json()).toEqual({ ok: true, ready: false, model: 'test', service: 'mentor' });
+		expect(await response.json()).toEqual({ ok: true, ready: false, model: 'test', jev: false, service: 'mentor' });
 	});
 
 	test('a bad body is a 400, a missing key a 503', async () => {

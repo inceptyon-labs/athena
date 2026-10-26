@@ -248,7 +248,13 @@ export interface PickOutcome {
 	picks: Pick[];
 	suggestions: Suggestion[];
 	minimums: Minimums;
-	usage: Anthropic.Usage;
+	/** Token counts for the log; Jev has no cache. */
+	usage: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_read_input_tokens?: number | null;
+		cache_creation_input_tokens?: number | null;
+	};
 }
 
 export async function pick(client: Anthropic, model: string, req: PickRequest): Promise<PickOutcome> {

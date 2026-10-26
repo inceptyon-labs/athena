@@ -8,7 +8,8 @@ const apiKey = process.env.ANTHROPIC_API_KEY;
 
 // One retry: a viewer is waiting on the other end.
 const client = apiKey ? new Anthropic({ apiKey, timeout: 45_000, maxRetries: 1 }) : null;
-if (!client) warn('ANTHROPIC_API_KEY is not set: /v1/pick answers 503');
+if (!client) warn('ANTHROPIC_API_KEY is not set: suggestions answer 503');
+const jevKey = process.env.TYPESAFE_API_KEY || null;
 
-Bun.serve({ port, fetch: createApp({ client, model }).fetch, maxRequestBodySize: 4 * 1024 * 1024 });
-log(`mentor listening on :${port} with ${model}`);
+Bun.serve({ port, fetch: createApp({ client, model, jevKey }).fetch, maxRequestBodySize: 4 * 1024 * 1024 });
+log(`mentor listening on :${port} with ${model}${jevKey ? ', library picks by Jev' : ''}`);

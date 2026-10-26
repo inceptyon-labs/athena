@@ -17,6 +17,15 @@ picks from the viewer's own library with Claude. What it does and its API are in
   `libraryText` and `discoverText` must stay byte-stable for the same input:
   nothing per request (time, exclusions, filters, the request itself) goes in
   them. Those go in `requestText`, after the breakpoints.
+- **Jev answers only library picks.** `answer` in `src/server.ts` sends a request
+  with `suggest: 0` to Jev (`src/jev.ts`) when `TYPESAFE_API_KEY` is set, and
+  everything else to Claude. Jev picks have an empty `reason`, which Ithaca shows
+  as none. A Jev failure falls back to Claude, so a viewer still gets picks.
+- **Jev's wording was tested on the real library.** The per-title question
+  (`Movie: <line>` with the rules in `jevState`), the minimum questions and the
+  0.4 fit cut-off each beat the alternatives tried on real requests. Re-test on
+  real requests before changing them; one call takes about 1,000 titles, so
+  `BATCH` is 500.
 - **LAN only, no auth.** The port is published on the LAN address alone. Anyone
   who can reach it spends the key, so the key's workspace carries the spend limit.
 

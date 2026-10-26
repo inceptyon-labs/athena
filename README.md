@@ -2,10 +2,18 @@
 
 Picks what to watch for [Ithaca](../ithaca), the Plex app. Ithaca's Pick Something
 screen sends what the viewer typed ("something funny under two hours") with the
-titles in their library that fit the screen's filters. Mentor asks Claude Haiku to
-choose from that list and answers with ids and a one-line reason for each. With
-Seerr connected, Ithaca also asks for titles the household doesn't have, which it
-shows as a To Request row.
+titles in their library that fit the screen's filters. Mentor chooses from that
+list and answers with ids. With Seerr connected, Ithaca also asks for titles the
+household doesn't have, which it shows as a To Request row.
+
+Two models do the choosing. With a TypeSafe key, library picks go to
+[Jev](https://typesafe.ai), a decision model that answers one yes-or-no question
+per title ("does this fit the request?") for the whole library at once, in about
+a quarter of a second. Jev writes no text, so these picks come without a reason.
+Suggestions go to Claude Haiku, which names titles from what it knows and writes
+a one-line reason for each; Jev can only choose from a list. Without a TypeSafe
+key, or when Jev fails, Claude makes the library picks too, with reasons, in
+about eight seconds.
 
 The Anthropic API key lives only here, so the apps on the TVs and phones need no
 key or cloud account. Mentor keeps no state and never talks to Plex: Ithaca sends
@@ -14,8 +22,8 @@ watch history.
 
 ## API
 
-`GET /healthz` returns `{ ok, ready, model, service: "mentor" }`. `ready` is false
-until a key is set. Ithaca finds Mentor without an address typed in by asking
+`GET /healthz` returns `{ ok, ready, model, jev, service: "mentor" }`. `ready` is
+false until a key is set, and `jev` says whether library picks go to Jev. Ithaca finds Mentor without an address typed in by asking
 port 8800 on the home-network address of each Plex server it reaches, and
 `service` is how it knows the answer is Mentor. Keep the port at 8800 on the
 Plex machine for that to work.
@@ -66,20 +74,25 @@ The answer:
 }
 ```
 
-Picks come best fit first, only ids from `titles`. Suggestions are titles and
+Picks come best fit first, only ids from `titles`; a pick from Jev has an empty
+`reason`. Jev's picks are the titles it gives at least a 40% chance of fitting, so
+a narrow request can come back with fewer than `count`. Suggestions are titles and
 years for Ithaca to look up on Seerr, with `discoverId` set when one came from
 `discover`. `minimums` is any minimum rating the request asked for ("over 8 on
 Rotten Tomatoes" is a critics minimum of 80), so Ithaca can check the scores
 itself. Errors are `{ "error": "..." }`: 400 for a bad body, 503 without a key, 502
-when Claude fails.
+when Claude, or Jev with no Claude to fall back on, fails.
 
 ## Cost
 
 A 600-title library is about 25K input tokens, and the recent list about 4K more.
 On Haiku 5.5 ($0.10 per million input tokens) that is about a quarter of a cent
 per request. The library and the recent list are cached for five minutes, so a
-second request with the same filters costs about a tenth of that. Each request
-logs its token counts.
+second request with the same filters costs about a tenth of that.
+
+Jev reads the same 600 titles as about 28K input tokens, at $0.042 per million
+with output free: about a thousandth of a cent per request. Each request logs its
+token counts and which model answered.
 
 ## Run
 
@@ -90,5 +103,6 @@ bun test
 ```
 
 Deployed to Uranus with `deploy` (compose, built on the box). The per-host `.env`
-there holds `MENTOR_BIND`, `MENTOR_PORT` and `ANTHROPIC_API_KEY`; see `.env.example`.
+there holds `MENTOR_BIND`, `MENTOR_PORT`, `ANTHROPIC_API_KEY` and
+`TYPESAFE_API_KEY`; see `.env.example`.
 Use a key from its own Claude Console workspace with a monthly spend limit.

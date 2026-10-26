@@ -1,24 +1,44 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { pickWithJev } from './jev';
 import { log, warn } from './log';
 import { PickError, PickRequest, pick, type PickOutcome } from './pick';
 
 export interface Deps {
 	client: Anthropic | null;
 	model: string;
+	/** TypeSafe's key. With it, library picks go to Jev and only suggestions to Claude. */
+	jevKey?: string | null;
 	/** Replaced in tests. */
 	pick?: (client: Anthropic, model: string, req: PickRequest) => Promise<PickOutcome>;
+	pickWithJev?: (key: string, req: PickRequest) => Promise<PickOutcome>;
 }
 
-export function createApp({ client, model, pick: runPick = pick }: Deps) {
+export function createApp({ client, model, jevKey = null, pick: runPick = pick, pickWithJev: runJev = pickWithJev }: Deps) {
 	const app = new Hono();
 
+	/** Jev for picks from the library; Claude for suggestions, and when Jev fails. */
+	async function answer(req: PickRequest): Promise<{ outcome: PickOutcome; by: string }> {
+		if (jevKey && req.suggest === 0) {
+			try {
+				return { outcome: await runJev(jevKey, req), by: 'jev' };
+			} catch (error) {
+				if (!client) throw error;
+				warn(`jev failed, asking Claude: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+		if (!client) throw new PickError('Mentor has no Anthropic API key yet.', 503);
+		return { outcome: await runPick(client, model, req), by: model };
+	}
+
 	// `service` is how Ithaca recognises Mentor when it looks for it on the Plex server's address.
-	app.get('/healthz', (c) => c.json({ ok: true, ready: client !== null, model, service: 'mentor' }));
+	app.get('/healthz', (c) =>
+		c.json({ ok: true, ready: client !== null || jevKey !== null, model, jev: jevKey !== null, service: 'mentor' }),
+	);
 
 	app.post('/v1/pick', async (c) => {
-		if (!client) return c.json({ error: 'Mentor has no Anthropic API key yet.' }, 503);
+		if (!client && !jevKey) return c.json({ error: 'Mentor has no API key yet.' }, 503);
 		let body: unknown;
 		try {
 			body = await c.req.json();
@@ -31,11 +51,12 @@ export function createApp({ client, model, pick: runPick = pick }: Deps) {
 		const req = parsed.data;
 		const started = Date.now();
 		try {
-			const { picks, suggestions, minimums, usage } = await runPick(client, model, req);
+			const { outcome, by } = await answer(req);
+			const { picks, suggestions, minimums, usage } = outcome;
 			log(
 				`pick ${req.kind} "${req.request}" from ${req.titles.length}: ${picks.length}` +
 					(req.suggest ? `, suggested ${suggestions.length} from ${req.discover?.length ?? 0} recent` : '') +
-					` in ${Date.now() - started}ms ` +
+					` in ${Date.now() - started}ms by ${by} ` +
 					`(in ${usage.input_tokens}, cache read ${usage.cache_read_input_tokens ?? 0}, ` +
 					`cache write ${usage.cache_creation_input_tokens ?? 0}, out ${usage.output_tokens})`,
 			);
