@@ -9,7 +9,8 @@ household doesn't have, which it shows as a To Request row.
 Two models do the choosing. With a TypeSafe key, library picks go to
 [Jev](https://typesafe.ai), a decision model that answers one yes-or-no question
 per title ("does this fit the request?") for the whole library at once, in about
-a quarter of a second. Jev writes no text, so these picks come without a reason.
+a quarter of a second. Jev writes no text, so these picks come without a reason,
+and it leaves out the viewer's taste.
 Suggestions go to Claude Haiku, which names titles from what it knows and writes
 a one-line reason for each; Jev can only choose from a list. Without a TypeSafe
 key, or when Jev fails, Claude makes the library picks too, with reasons, in
