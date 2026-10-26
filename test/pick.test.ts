@@ -64,6 +64,7 @@ describe('prompt', () => {
 		const suggestionsOnly = PickRequest.parse({ ...body, titles: [{ id: '1', title: 'Moon' }], count: 0, suggest: 3 });
 		expect(requestText(suggestionsOnly)).toEndWith('Pick none.\nSuggest 3 movies the household does not have, fewer only when fewer fit.');
 		expect(PickRequest.safeParse({ ...suggestionsOnly, suggest: 0 }).success).toBe(false);
+		expect(cleanPicks([{ id: '1', reason: 'Picked anyway.' }], suggestionsOnly)).toEqual([]);
 	});
 });
 

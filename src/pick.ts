@@ -188,6 +188,7 @@ export function requestText(req: PickRequest): string {
 
 /** The model's picks, keeping only ids from the list, each once, never excluded ones. */
 export function cleanPicks(picks: Pick[], req: PickRequest): Pick[] {
+	if (req.count === 0) return [];
 	const known = new Set(req.titles.map((title) => title.id));
 	const used = new Set(req.exclude ?? []);
 	const result: Pick[] = [];
