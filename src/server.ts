@@ -30,13 +30,15 @@ export function createApp({ client, model, pick: runPick = pick }: Deps) {
 		const req = parsed.data;
 		const started = Date.now();
 		try {
-			const { picks, usage } = await runPick(client, model, req);
+			const { picks, suggestions, minimums, usage } = await runPick(client, model, req);
 			log(
-				`pick ${req.kind} "${req.request}" from ${req.titles.length}: ${picks.length} in ${Date.now() - started}ms ` +
+				`pick ${req.kind} "${req.request}" from ${req.titles.length}: ${picks.length}` +
+					(req.suggest ? `, suggested ${suggestions.length} from ${req.discover?.length ?? 0} recent` : '') +
+					` in ${Date.now() - started}ms ` +
 					`(in ${usage.input_tokens}, cache read ${usage.cache_read_input_tokens ?? 0}, ` +
 					`cache write ${usage.cache_creation_input_tokens ?? 0}, out ${usage.output_tokens})`,
 			);
-			return c.json({ picks });
+			return c.json({ picks, suggestions, minimums });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			warn(`pick ${req.kind} "${req.request}" failed after ${Date.now() - started}ms: ${message}`);

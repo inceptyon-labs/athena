@@ -11,10 +11,12 @@ picks from the viewer's own library with Claude. What it does and its API are in
   (`Ithaca/Sources/Features/PickSomething/PickSomethingMentor.swift`). Change both
   together, and keep new fields optional so an older app keeps working.
 - **Picks only come from the list sent.** `cleanPicks` drops unknown, repeated and
-  excluded ids; never return a title the request did not contain.
-- **The library block is the cached prefix.** `SYSTEM` and `libraryText` must stay
-  byte-stable for the same input: nothing per request (time, exclusions, the
-  request itself) goes in them. Those go in `requestText`, after the breakpoint.
+  excluded ids; never return a title the request did not contain. Suggestions are
+  free text that Ithaca checks against Seerr, so Mentor only dedupes them.
+- **The library and recent-list blocks are the cached prefix.** `SYSTEM`,
+  `libraryText` and `discoverText` must stay byte-stable for the same input:
+  nothing per request (time, exclusions, filters, the request itself) goes in
+  them. Those go in `requestText`, after the breakpoints.
 - **LAN only, no auth.** The port is published on the LAN address alone. Anyone
   who can reach it spends the key, so the key's workspace carries the spend limit.
 
