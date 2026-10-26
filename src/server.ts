@@ -14,7 +14,8 @@ export interface Deps {
 export function createApp({ client, model, pick: runPick = pick }: Deps) {
 	const app = new Hono();
 
-	app.get('/healthz', (c) => c.json({ ok: true, ready: client !== null, model }));
+	// `service` is how Ithaca recognises Mentor when it looks for it on the Plex server's address.
+	app.get('/healthz', (c) => c.json({ ok: true, ready: client !== null, model, service: 'mentor' }));
 
 	app.post('/v1/pick', async (c) => {
 		if (!client) return c.json({ error: 'Mentor has no Anthropic API key yet.' }, 503);

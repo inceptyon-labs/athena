@@ -14,7 +14,11 @@ watch history.
 
 ## API
 
-`GET /healthz` returns `{ ok, ready, model }`. `ready` is false until a key is set.
+`GET /healthz` returns `{ ok, ready, model, service: "mentor" }`. `ready` is false
+until a key is set. Ithaca finds Mentor without an address typed in by asking
+port 8800 on the home-network address of each Plex server it reaches, and
+`service` is how it knows the answer is Mentor. Keep the port at 8800 on the
+Plex machine for that to work.
 
 `POST /v1/pick`
 

@@ -129,6 +129,11 @@ describe('POST /v1/pick', () => {
 		expect(await response.json()).toEqual({ picks: [{ id: '1', reason: 'Gags.' }], suggestions: [], minimums });
 	});
 
+	test('the health check says what it is', async () => {
+		const response = await createApp({ client: null, model: 'test' }).request('/healthz');
+		expect(await response.json()).toEqual({ ok: true, ready: false, model: 'test', service: 'mentor' });
+	});
+
 	test('a bad body is a 400, a missing key a 503', async () => {
 		const app = createApp({ client: {} as never, model: 'test' });
 		expect((await post(app, '{"request":""}')).status).toBe(400);
