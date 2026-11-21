@@ -77,12 +77,13 @@ function result(entry: Entry) {
 	return parts.join(', ');
 }
 
-const Layout: FC<{ title: string; signedIn?: Session | null; nav?: 'status' | 'settings'; children: Child }> = ({
-	title,
-	signedIn,
-	nav,
-	children,
-}) => (
+const Layout: FC<{
+	title: string;
+	signedIn?: Session | null;
+	nav?: 'status' | 'settings';
+	bare?: boolean;
+	children: Child;
+}> = ({ title, signedIn, nav, bare, children }) => (
 	<>
 		{raw('<!doctype html>')}
 		<html lang="en">
@@ -99,32 +100,34 @@ const Layout: FC<{ title: string; signedIn?: Session | null; nav?: 'status' | 's
 				<script src="/app.js" defer />
 			</head>
 			<body>
-				<header class="bar">
-					<div class="bar-inner">
-						<a class="brand" href="/">
-							<img src="/mark.svg" alt="" width="26" height="26" />
-							<span>Athena</span>
-						</a>
-						{nav && (
-							<nav aria-label="Main">
-								<a href="/" aria-current={nav === 'status' ? 'page' : undefined}>
-									Status
-								</a>
-								<a href="/settings" aria-current={nav === 'settings' ? 'page' : undefined}>
-									Settings
-								</a>
-							</nav>
-						)}
-						{signedIn && (
-							<form method="post" action="/signout" class="who">
-								<span class="who-name">{signedIn.name}</span>
-								<button type="submit" class="quiet">
-									Sign out
-								</button>
-							</form>
-						)}
-					</div>
-				</header>
+				{!bare && (
+					<header class="bar">
+						<div class="bar-inner">
+							<a class="brand" href="/">
+								<img src="/mark.svg" alt="" width="26" height="26" />
+								<span>Athena</span>
+							</a>
+							{nav && (
+								<nav aria-label="Main">
+									<a href="/" aria-current={nav === 'status' ? 'page' : undefined}>
+										Status
+									</a>
+									<a href="/settings" aria-current={nav === 'settings' ? 'page' : undefined}>
+										Settings
+									</a>
+								</nav>
+							)}
+							{signedIn && (
+								<form method="post" action="/signout" class="who">
+									<span class="who-name">{signedIn.name}</span>
+									<button type="submit" class="quiet">
+										Sign out
+									</button>
+								</form>
+							)}
+						</div>
+					</header>
+				)}
 				<main>{children}</main>
 			</body>
 		</html>
@@ -209,7 +212,7 @@ export function mountWeb(app: Hono, web: Web) {
 	}
 
 	const SignIn: FC = () => (
-		<Layout title="Athena">
+		<Layout title="Athena" bare>
 			<section class="signin">
 				<img src="/icon.svg" alt="" width="88" height="88" class="signin-icon" />
 				<h1>Athena</h1>
@@ -220,7 +223,8 @@ export function mountWeb(app: Hono, web: Web) {
 					</button>
 				</form>
 				<p class="hint">
-					The owner of the Plex server sets Athena up here. Anyone the server is shared with can sign in to see their own use.
+					The owner of the Plex server sets Athena up here. Anyone the server is shared with can sign in to see their
+					own use.
 				</p>
 			</section>
 		</Layout>
@@ -320,7 +324,8 @@ export function mountWeb(app: Hono, web: Web) {
 	/** Whether Athena can answer, and what to do when it can't. */
 	function readiness(servers: Server[], machine: string | null) {
 		const effective = live.effective;
-		if (!live.gate) return { state: 'off', title: 'Not set up', detail: 'Choose your Plex server in Settings.' } as const;
+		if (!live.gate)
+			return { state: 'off', title: 'Not set up', detail: 'Choose your Plex server in Settings.' } as const;
 		if (!machine)
 			return {
 				state: 'off',
@@ -353,8 +358,8 @@ export function mountWeb(app: Hono, web: Web) {
 			return c.html(
 				<Note title="No access" signedIn={s}>
 					<p>
-						Your Plex account, {s.name}, isn't one {name} is shared with, so this Athena doesn't answer it. Ask the server's
-						owner to share their library with you in Plex.
+						Your Plex account, {s.name}, isn't one {name} is shared with, so this Athena doesn't answer it. Ask the
+						server's owner to share their library with you in Plex.
 					</p>
 				</Note>,
 			);
@@ -424,7 +429,15 @@ export function mountWeb(app: Hono, web: Web) {
 					</div>
 					<div>
 						<dt>Daily limit</dt>
-						<dd>{limit ? <>{limit} <span>a day each</span></> : <span class="none">None</span>}</dd>
+						<dd>
+							{limit ? (
+								<>
+									{limit} <span>a day each</span>
+								</>
+							) : (
+								<span class="none">None</span>
+							)}
+						</dd>
 					</div>
 				</dl>
 
@@ -432,8 +445,8 @@ export function mountWeb(app: Hono, web: Web) {
 					<h2>Recent requests</h2>
 					{recent.length === 0 ? (
 						<p class="empty">
-							Nothing yet. Ask for something in Ithaca's Describe It, and it shows up here with who asked, the answer, the
-							model and how long it took.
+							Nothing yet. Ask for something in Ithaca's Describe It, and it shows up here with who asked, the answer,
+							the model and how long it took.
 						</p>
 					) : (
 						<div class="table-wrap">
@@ -459,8 +472,8 @@ export function mountWeb(app: Hono, web: Web) {
 												<span class="kind">{entry.kind === 'show' ? 'TV' : 'Film'}</span> {entry.request}
 											</td>
 											<td class="answer">{result(entry)}</td>
-											<td class="by">{entry.by ? modelName(entry.by) : '—'}</td>
-											<td class="num took">{entry.status === 429 ? '—' : duration(entry.ms)}</td>
+											<td class="by">{entry.by ? modelName(entry.by) : ''}</td>
+											<td class="num took">{entry.status === 429 ? '' : duration(entry.ms)}</td>
 										</tr>
 									))}
 								</tbody>
@@ -502,7 +515,7 @@ export function mountWeb(app: Hono, web: Web) {
 		const chosen = effective.server?.id ?? machine;
 		const models = MODELS.some((model) => model.id === effective.model)
 			? MODELS
-			: [...MODELS, { id: effective.model, name: effective.model, note: '' }];
+			: [...MODELS, { id: effective.model, name: effective.model }];
 		return (
 			<Layout title={setup ? 'Set up' : 'Settings'} signedIn={s} nav={setup ? undefined : 'settings'}>
 				<div class="page-head">
@@ -521,14 +534,18 @@ export function mountWeb(app: Hono, web: Web) {
 				<form method="post" action="/settings" class="settings">
 					<fieldset>
 						<legend>Plex server</legend>
-						<p class="hint">Only people with access to this server can use Athena, and only its owner can open Settings.</p>
+						<p class="hint">
+							Only people with access to this server can use Athena, and only its owner can open Settings.
+						</p>
 						{effective.env.server ? (
 							<p class="locked">
 								<strong>{serverName(servers, machine)}</strong>
 								<span>Set by PLEX_URL</span>
 							</p>
 						) : owned.length === 0 ? (
-							<p class="banner error">Your Plex account doesn't own a Plex server. Sign in with the account that does.</p>
+							<p class="banner error">
+								Your Plex account doesn't own a Plex server. Sign in with the account that does.
+							</p>
 						) : (
 							<div class="choices">
 								{owned.map((server, index) => (
@@ -568,11 +585,14 @@ export function mountWeb(app: Hono, web: Web) {
 									{models.map((model) => (
 										<option value={model.id} selected={model.id === effective.model}>
 											{model.name}
-											{model.note ? `, ${model.note}` : ''}
 										</option>
 									))}
 								</select>
 							)}
+							<span class="hint">
+								Haiku costs about a quarter of a cent a request with a 600-title library. Sonnet costs about 20 times
+								that, Opus about 40.
+							</span>
 						</label>
 						<div class="test">
 							<button type="button" class="secondary" data-test-key hidden>
@@ -696,7 +716,10 @@ export function mountWeb(app: Hono, web: Web) {
 		}
 		const limit = text('dailyLimit');
 		if (limit && !/^\d{1,4}$/.test(limit))
-			return c.redirect(`/settings?problem=${encodeURIComponent('The daily limit is a whole number, or empty for none.')}`, 303);
+			return c.redirect(
+				`/settings?problem=${encodeURIComponent('The daily limit is a whole number, or empty for none.')}`,
+				303,
+			);
 		patch.dailyLimit = limit ? Number(limit) : null;
 
 		live.settings.save(patch);
@@ -709,7 +732,8 @@ export function mountWeb(app: Hono, web: Web) {
 		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
 		const found = await who(c);
 		if ('page' in found) return c.json({ ok: false, message: 'Sign in again.' }, 401);
-		if (found.role !== 'owner' && found.role !== 'setup') return c.json({ ok: false, message: 'Only the owner can test keys.' }, 403);
+		if (found.role !== 'owner' && found.role !== 'setup')
+			return c.json({ ok: false, message: 'Only the owner can test keys.' }, 403);
 		const form = await c.req.parseBody();
 		const typed = typeof form.anthropicKey === 'string' ? form.anthropicKey.trim() : '';
 		const effective = live.effective;

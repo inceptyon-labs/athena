@@ -34,7 +34,7 @@ export function cost(by: string, usage: PickOutcome['usage']): number | null {
 }
 
 export const MODELS = [
-	{ id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', note: 'about a quarter of a cent a request' },
-	{ id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', note: 'about 20 times Haiku' },
-	{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', note: 'about 40 times Haiku' },
+	{ id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5' },
+	{ id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+	{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
 ];
