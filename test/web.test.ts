@@ -7,6 +7,7 @@ import { createApp } from '../src/server';
 import { Sessions } from '../src/sessions';
 import { Settings } from '../src/settings';
 import { Usage } from '../src/usage';
+import { qrSVG } from '../src/share';
 import { mountWeb } from '../src/web';
 import { fakePlex } from './helpers';
 
@@ -31,7 +32,7 @@ const sampleAnswer = () =>
 	});
 
 /** Athena with fake Plex, where the PIN `pin` is approved by whoever `approve` says. */
-function athena(saved: Parameters<Settings['save']>[0] = {}) {
+function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string, string> = {}) {
 	const plex = fakePlex();
 	let approve: string | null = null;
 	const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -49,7 +50,7 @@ function athena(saved: Parameters<Settings['save']>[0] = {}) {
 		if (String(url) === 'http://ollama:11434/v1/chat/completions') return sampleAnswer();
 		return plex.fetcher(url, init);
 	}) as typeof fetch;
-	const settings = new Settings(mkdtempSync(join(tmpdir(), 'athena-')), {});
+	const settings = new Settings(mkdtempSync(join(tmpdir(), 'athena-')), env);
 	settings.save(saved);
 	const live = new Live(settings, fetcher);
 	const usage = new Usage(':memory:');
@@ -199,6 +200,7 @@ describe('sharing with friends', () => {
 		expect(page).toContain('data-copy="share-link"');
 		expect(page).toContain('<svg');
 		expect(page).toContain('<p class="address">https://athena.example.com</p>');
+		expect(page).toContain(qrSVG('ithaca://athena?url=https%3A%2F%2Fathena.example.com'));
 	});
 
 	test('without a public address, the share page says Athena is home-only', async () => {
@@ -289,5 +291,35 @@ describe('choosing the AI model', () => {
 		const local = await test({ provider: 'local', localURL: 'http://ollama:11434', model: 'llama-test' });
 		expect(local).toMatchObject({ ok: true, models: ['llama-test:latest'] });
 		expect(local.message).toContain('llama-test (local) picked Airplane!');
+	});
+
+	test('before setup, Test is only for someone who owns a Plex server, since it spends the key', async () => {
+		const { post, signIn } = athena({}, { OPENAI_API_KEY: 'sk-openai', ATHENA_PROVIDER: 'openai' });
+		const friend = await post('/settings/test', { provider: 'openai', model: 'gpt-6-luna' }, await signIn('friend-token'));
+		expect(friend.status).toBe(403);
+		const owner = await post('/settings/test', { provider: 'openai', model: 'gpt-6-luna' }, await signIn('owner-token'));
+		expect(((await owner.json()) as { ok: boolean }).ok).toBe(true);
+	});
+
+	test('with the provider set by ATHENA_PROVIDER, the tier or local model saved is the one used', async () => {
+		const cloud = athena(ready, { ATHENA_PROVIDER: 'openai', OPENAI_API_KEY: 'sk-openai' });
+		await cloud.post('/settings', { server: 'machine-1', model_openai: 'gpt-6.2-sol' }, await cloud.signIn('owner-token'));
+		expect(cloud.live.ai?.by).toBe('gpt-6.2-sol');
+		const local = athena(ready, { ATHENA_PROVIDER: 'local' });
+		await local.post(
+			'/settings',
+			{ server: 'machine-1', localURL: 'http://ollama:11434', model_local: 'llama-test' },
+			await local.signIn('owner-token'),
+		);
+		expect(local.live.ai?.by).toBe('local:llama-test');
+	});
+
+	test("Test refuses a local address Save would refuse, rather than trying the saved one", async () => {
+		const { post, signIn } = athena({ ...ready, provider: 'local', localURL: 'http://ollama:11434/v1', model: 'llama-test' });
+		const answer = await post('/settings/test', { provider: 'local', localURL: 'ftp://new-server', model: 'llama-test' }, await signIn('owner-token'));
+		expect(await answer.json()).toEqual({
+			ok: false,
+			message: "The local model's address is an http:// address, such as http://192.168.1.10:11434/v1.",
+		});
 	});
 });

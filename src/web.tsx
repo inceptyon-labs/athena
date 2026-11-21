@@ -1006,8 +1006,9 @@ export function mountWeb(app: Hono, web: Web) {
 			patch.server = { id: server.id, name: server.name };
 		}
 		const chosen = text('provider');
-		if (!effective.env.provider && isProvider(chosen)) patch.provider = chosen;
-		const provider = providerOf(patch.provider ?? effective.provider);
+		const provider = providerOf(!effective.env.provider && isProvider(chosen) ? chosen : effective.provider);
+		// Saved even when ATHENA_PROVIDER chooses it, so the model saved with it is read back for it.
+		patch.provider = provider.id;
 		const keys: (KeyName | 'typesafeKey')[] = [...PROVIDERS.flatMap((each) => (each.id === 'local' ? [] : [keyName(each.id)])), 'typesafeKey'];
 		for (const key of keys) {
 			if (effective.env[key]) continue;
@@ -1024,7 +1025,7 @@ export function mountWeb(app: Hono, web: Web) {
 		patch.localURL = local ? localBase(local) : null;
 		if (local && !patch.localURL)
 			return c.redirect(
-				`/settings?problem=${encodeURIComponent("The local model's address is an http:// address, such as http://192.168.1.10:11434/v1.")}`,
+				`/settings?problem=${encodeURIComponent(LOCAL_ADDRESS)}`,
 				303,
 			);
 		const limit = text('dailyLimit');
@@ -1057,8 +1058,9 @@ export function mountWeb(app: Hono, web: Web) {
 		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
 		const found = await who(c);
 		if ('page' in found) return c.json({ ok: false, message: 'Sign in again.' }, 401);
-		if (found.role !== 'owner' && found.role !== 'setup')
-			return c.json({ ok: false, message: 'Only the owner can test keys.' }, 403);
+		// Test spends the key, so before setup only someone who could set Athena up may run it.
+		const setter = found.role === 'owner' || (found.role === 'setup' && found.servers.some((server) => server.owned));
+		if (!setter) return c.json({ ok: false, message: 'Only the owner can test keys.' }, 403);
 		const form = await c.req.parseBody();
 		const field = (key: string) => (typeof form[key] === 'string' ? (form[key] as string).trim() : '');
 		const effective = live.effective;
@@ -1071,7 +1073,9 @@ export function mountWeb(app: Hono, web: Web) {
 
 		let models: string[] | undefined;
 		if (provider.id === 'local') {
-			const base = (field('localURL') && localBase(field('localURL'))) || effective.localURL;
+			const typed = field('localURL');
+			const base = typed ? localBase(typed) : effective.localURL;
+			if (typed && !base) return c.json({ ok: false, message: LOCAL_ADDRESS });
 			if (!base) return c.json({ ok: false, message: "Enter the local server's address first." });
 			try {
 				const listed = await listModels(base, null, live.fetcher);
@@ -1114,6 +1118,8 @@ export function mountWeb(app: Hono, web: Web) {
 		}
 	});
 }
+
+const LOCAL_ADDRESS = "The local model's address is an http:// address, such as http://192.168.1.10:11434/v1.";
 
 /** Settings' Test request: small, so it costs next to nothing, with one clear fit. */
 const SAMPLE = PickRequest.parse({
