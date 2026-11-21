@@ -3,3 +3,14 @@ node_modules
 docker-compose.override.yml
 compose.override.yml
 data
+
+# Added by repo-ready
+.DS_Store
+
+# Archify diagram output (local, regenerated on demand)
+.archify/
+
+# AI assistant config (local-only)
+CLAUDE.md
+AGENTS.md
+.impeccable/

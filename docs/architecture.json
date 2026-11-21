@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Athena architecture",
+    "locale": "en",
+    "output": ".archify/architecture-athena-overview-20261121-163124/athena-overview.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "git@github.com:inceptyon-labs/athena.git",
+      "revision": "3d3c36c7559f88cbed8321c96973c1442e32afab",
+      "link_mode": "local-only"
+    }
+  },
+  "components": [
+    {
+      "id": "web", "type": "frontend", "label": "Web UI", "sublabel": "status · Share · Settings",
+      "tag": "Plex PIN sign-in", "pos": [680, 100], "size": [170, 70],
+      "sources": [
+        { "path": "src/web.tsx", "line": 200, "end_line": 216, "label": "roles from plex.tv server list" },
+        { "path": "src/web.tsx", "line": 266, "end_line": 338, "label": "Plex PIN sign-in, session cookie" },
+        { "path": "src/web.tsx", "line": 992, "end_line": 1050, "label": "POST /settings: owner or setup only" }
+      ]
+    },
+    {
+      "id": "settings", "type": "database", "label": "Settings", "sublabel": "settings.json · env wins",
+      "tag": "keys · mode 600", "pos": [1050, 100], "size": [180, 70],
+      "sources": [
+        { "path": "src/settings.ts", "line": 70, "end_line": 111, "label": "effective(): env vars win" },
+        { "path": "src/settings.ts", "line": 113, "end_line": 121, "label": "save: mode 600, atomic rename" },
+        { "path": "src/live.ts", "line": 20, "end_line": 61, "label": "Live.refresh rebuilds AI and gate" }
+      ]
+    },
+    {
+      "id": "browser", "type": "external", "label": "Browser", "sublabel": "owner and viewers",
+      "pos": [80, 220], "size": [160, 68],
+      "sources": [
+        { "path": "src/web.tsx", "line": 28, "end_line": 31, "label": "web UI for owner and viewers" },
+        { "path": "README.md", "line": 88, "end_line": 89, "label": "anyone with access can sign in" }
+      ]
+    },
+    {
+      "id": "plex", "type": "security", "label": "Plex access check", "sublabel": "PlexGate + PlexTV · plex.ts",
+      "tag": "SHA-256 token cache", "pos": [680, 220], "size": [170, 68],
+      "sources": [
+        { "path": "src/plex.ts", "line": 37, "end_line": 72, "label": "PlexTV: /api/v2/resources and /user" },
+        { "path": "src/plex.ts", "line": 74, "end_line": 96, "label": "PlexTV: PIN sign-in calls" },
+        { "path": "src/plex.ts", "line": 153, "end_line": 171, "label": "PlexGate.viewer: hashed cache" }
+      ]
+    },
+    {
+      "id": "plextv", "type": "external", "label": "plex.tv", "sublabel": "accounts · servers · PINs",
+      "pos": [1420, 220], "size": [190, 68],
+      "sources": [
+        { "path": "src/plex.ts", "line": 19, "end_line": 35, "label": "base https://plex.tv" }
+      ]
+    },
+    {
+      "id": "ithaca", "type": "external", "label": "Ithaca (at home)", "sublabel": "Apple TV · iPhone · iPad",
+      "pos": [80, 350], "size": [160, 76],
+      "sources": [
+        { "path": "src/pick.ts", "line": 39, "end_line": 61, "label": "PickRequest: what Ithaca sends" },
+        { "path": "README.md", "line": 68, "end_line": 71, "label": "Ithaca finds port 8800 at home" }
+      ]
+    },
+    {
+      "id": "serve", "type": "backend", "label": "Bun.serve :8800", "sublabel": "main.ts · one Hono app",
+      "pos": [380, 350], "size": [160, 76],
+      "sources": [
+        { "path": "src/main.ts", "line": 10, "end_line": 16, "label": "umask 077, port, data dir" },
+        { "path": "src/main.ts", "line": 23, "end_line": 26, "label": "createApp + mountWeb on Bun.serve" }
+      ]
+    },
+    {
+      "id": "api", "type": "backend", "label": "Ithaca API", "sublabel": "POST /v1/pick · /healthz",
+      "tag": "answer()", "pos": [655, 350], "size": [220, 76],
+      "sources": [
+        { "path": "src/server.ts", "line": 45, "end_line": 57, "label": "answer(): Jev or the chosen model" },
+        { "path": "src/server.ts", "line": 74, "end_line": 125, "label": "/v1/pick: Plex check, daily limit" },
+        { "path": "src/server.ts", "line": 127, "end_line": 146, "label": "answer, log, respond" }
+      ]
+    },
+    {
+      "id": "claude", "type": "backend", "label": "Claude client", "sublabel": "pick.ts · Anthropic SDK",
+      "pos": [1050, 350], "size": [180, 76],
+      "sources": [
+        { "path": "src/pick.ts", "line": 267, "end_line": 306, "label": "claude(), pick(): messages.parse" },
+        { "path": "src/live.ts", "line": 16, "label": "Anthropic client, 45 s, one retry" }
+      ]
+    },
+    {
+      "id": "anthropic", "type": "external", "label": "Anthropic API", "sublabel": "Claude models",
+      "pos": [1420, 350], "size": [190, 76],
+      "sources": [
+        { "path": "src/providers.ts", "line": 36, "end_line": 48, "label": "Anthropic provider and models" }
+      ]
+    },
+    {
+      "id": "usage", "type": "database", "label": "Request log", "sublabel": "athena.db · bun:sqlite",
+      "tag": "daily limit", "pos": [685, 480], "size": [160, 68],
+      "sources": [
+        { "path": "src/usage.ts", "line": 52, "end_line": 82, "label": "requests table in SQLite" },
+        { "path": "src/usage.ts", "line": 84, "end_line": 98, "label": "repeats, usedToday" },
+        { "path": "src/usage.ts", "line": 129, "end_line": 158, "label": "record, 400-day retention" }
+      ]
+    },
+    {
+      "id": "jev", "type": "backend", "label": "Jev client", "sublabel": "jev.ts · library picks only",
+      "pos": [1050, 480], "size": [180, 68],
+      "sources": [
+        { "path": "src/jev.ts", "line": 133, "end_line": 165, "label": "ask, pickWithJev: batches of 500" }
+      ]
+    },
+    {
+      "id": "typesafe", "type": "external", "label": "TypeSafe Jev", "sublabel": "api.typesafe.ai",
+      "pos": [1420, 480], "size": [190, 68],
+      "sources": [
+        { "path": "src/jev.ts", "line": 4, "end_line": 14, "label": "endpoint and model" }
+      ]
+    },
+    {
+      "id": "compat", "type": "backend", "label": "Compat client", "sublabel": "compat.ts · Chat Completions",
+      "pos": [1050, 600], "size": [180, 68],
+      "sources": [
+        { "path": "src/compat.ts", "line": 88, "end_line": 151, "label": "compat(): POST /chat/completions" },
+        { "path": "src/live.ts", "line": 9, "end_line": 18, "label": "makeAI picks the client" }
+      ]
+    },
+    {
+      "id": "openai", "type": "external", "label": "OpenAI-style APIs", "sublabel": "OpenAI · Gemini · xAI · DeepSeek",
+      "pos": [1420, 600], "size": [190, 68],
+      "sources": [
+        { "path": "src/providers.ts", "line": 49, "end_line": 110, "label": "provider API bases" }
+      ]
+    },
+    {
+      "id": "proxy", "type": "external", "label": "Reverse proxy", "sublabel": "owner's HTTPS, e.g. Caddy",
+      "pos": [80, 730], "size": [160, 64],
+      "sources": [
+        { "path": "README.md", "line": 97, "end_line": 106, "label": "HTTPS reverse proxy to :8800" },
+        { "path": "src/settings.ts", "line": 19, "end_line": 20, "label": "publicURL through the proxy" },
+        { "path": "src/web.tsx", "line": 45, "end_line": 51, "label": "X-Forwarded-Proto and -Host" }
+      ]
+    },
+    {
+      "id": "local", "type": "external", "label": "Local model server", "sublabel": "Ollama · LM Studio",
+      "pos": [1050, 730], "size": [180, 64],
+      "sources": [
+        { "path": "src/live.ts", "line": 11, "end_line": 12, "label": "local: settings address, no key" },
+        { "path": "src/providers.ts", "line": 111, "end_line": 118, "label": "local provider entry" }
+      ]
+    },
+    {
+      "id": "friends", "type": "external", "label": "Friends' Ithaca", "sublabel": "away from home",
+      "pos": [80, 880], "size": [160, 60],
+      "sources": [
+        { "path": "src/share.ts", "line": 3, "end_line": 21, "label": "https address, ithaca:// link" },
+        { "path": "README.md", "line": 108, "end_line": 114, "label": "Share: link, QR, address" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region", "label": "Home network (LAN)", "pad": 44,
+      "wraps": ["browser", "ithaca", "proxy", "local", "serve", "api", "web", "plex", "settings", "usage", "claude", "jev", "compat"]
+    },
+    {
+      "kind": "security-group", "label": "Athena container: keys, tokens, /data", "pad": 20,
+      "wraps": ["serve", "api", "web", "plex", "settings", "usage", "claude", "jev", "compat"]
+    },
+    {
+      "kind": "region", "label": "Third-party AI: sees request + library", "pad": 20,
+      "wraps": ["anthropic", "typesafe", "openai"]
+    }
+  ],
+  "connections": [
+    { "id": "friends-to-proxy", "from": "friends", "to": "proxy", "label": "HTTPS" },
+    { "id": "proxy-to-serve", "from": "proxy", "to": "serve", "label": "forwards to :8800" },
+    { "id": "ithaca-to-serve", "from": "ithaca", "to": "serve", "label": "HTTP :8800", "variant": "emphasis" },
+    { "id": "browser-to-serve", "from": "browser", "to": "serve", "label": "web pages" },
+    { "id": "serve-to-api", "from": "serve", "to": "api", "label": "/v1/pick", "variant": "emphasis" },
+    { "id": "serve-to-web", "from": "serve", "to": "web", "label": "/, /share, /settings" },
+    { "id": "api-to-plex", "from": "api", "to": "plex", "label": "viewer(X-Plex-Token)", "variant": "security" },
+    { "id": "web-to-plex", "from": "web", "to": "plex", "label": "PIN sign-in, servers", "variant": "security" },
+    { "id": "plex-to-plextv", "from": "plex", "to": "plextv", "label": "/api/v2 resources + user", "variant": "security" },
+    { "id": "web-to-settings", "from": "web", "to": "settings", "label": "save (owner or setup)" },
+    { "id": "api-to-claude", "from": "api", "to": "claude", "label": "ai.pick if Anthropic", "variant": "emphasis" },
+    { "id": "api-to-jev", "from": "api", "to": "jev", "label": "suggest 0 + key" },
+    { "id": "api-to-compat", "from": "api", "to": "compat", "label": "ai.pick otherwise" },
+    { "id": "api-to-usage", "from": "api", "to": "usage", "label": "record, daily limit" },
+    { "id": "claude-to-anthropic", "from": "claude", "to": "anthropic", "label": "messages.parse", "variant": "emphasis" },
+    { "id": "jev-to-typesafe", "from": "jev", "to": "typesafe", "label": "POST /v1/systemone" },
+    { "id": "compat-to-openai", "from": "compat", "to": "openai", "label": "POST /chat/completions" },
+    { "id": "compat-to-local", "from": "compat", "to": "local", "label": "same API, no key" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan", "title": "Describe It, step by step",
+      "items": [
+        "Ithaca POSTs /v1/pick with the viewer's X-Plex-Token and the titles that fit its filters",
+        "503 until a Plex server is chosen; 401 unless plex.tv lists that server for the account",
+        "Non-owners past the daily limit get 429; Ithaca's paired picks and suggestions count once",
+        "answer(): suggest 0 with a TypeSafe key goes to Jev; a Jev failure falls back to the chosen model",
+        "Picks are cut to ids the request sent; the outcome and its cost estimate (prices.ts) go to athena.db"
+      ]
+    },
+    {
+      "dot": "rose", "title": "Trust boundaries",
+      "items": [
+        "Home network: compose publishes :8800 on one address (127.0.0.1 by default), never 0.0.0.0",
+        "Internet: friends reach Athena only through the owner's HTTPS reverse proxy",
+        "Athena container: API keys live in settings.json (mode 600, umask 077); it runs as 99:100",
+        "Plex tokens: SHA-256 hashes in PlexGate's cache; web sessions hold them in memory only",
+        "Third-party AI gets the request text and library titles; a local model keeps them on the LAN"
+      ]
+    },
+    {
+      "dot": "violet", "title": "Settings and web UI",
+      "items": [
+        "Live (live.ts) is the API's deps object: a save rebuilds the AI client, and PlexGate when the server changes",
+        "Env vars (PLEX_URL, ATHENA_PROVIDER, ATHENA_MODEL, *_API_KEY) win over settings.json and show locked",
+        "Only the Plex server's owner saves; before a server is chosen, the first person to sign in sets it up",
+        "Settings Test runs a 3-title sample through makeAI and ai.pick, without logging it",
+        "The status page reads athena.db; Share renders the ithaca://athena?url= link and its QR code (share.ts)"
+      ]
+    },
+    {
+      "dot": "slate", "title": "Deployment",
+      "items": [
+        "Dockerfile: oven/bun image, PORT 8800, ATHENA_DATA=/data, healthcheck on GET /healthz",
+        "docker-compose.yml mounts ./data:/data for settings.json and athena.db",
+        "entrypoint.sh gives /data to PUID:PGID (99:100) and drops root",
+        "With PLEX_URL set, PlexGate reads that Plex server's /identity for its machine id, then asks plex.tv"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+.git
+.github
+.githooks
+.archify
+node_modules
+data
+.env
+docker-compose.override.yml
+compose.override.yml

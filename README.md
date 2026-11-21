@@ -4,6 +4,9 @@
 
 **The AI companion for Ithaca for Plex.**
 
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+[![gitleaks](https://github.com/inceptyon-labs/athena/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/inceptyon-labs/athena/actions/workflows/gitleaks.yml)
+
 Athena answers Describe It in [Ithaca](https://inceptyon.io/ithaca/support), the Plex app for Apple TV, iPhone and
 iPad. Describe It is part of Ithaca Pro: you type what you're in the mood for ("something funny under two hours") and
 Ithaca picks from your library. Ithaca can do that on the device by itself. With Athena on your network, an AI model
@@ -227,6 +230,14 @@ bun run start      # :8800, settings and the request log in ./data
 bun test
 bun run check
 ```
+
+After cloning, turn on the versioned git hooks once (gitleaks checks every commit for secrets; `brew install gitleaks`):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Security issues: see [SECURITY.md](SECURITY.md).
 
 ## License
 
