@@ -3,20 +3,20 @@ services:
     build: .
     container_name: athena
     restart: unless-stopped
-    # No state, never root.
-    user: "99:100"
     ports:
       # The address to publish on: this machine's home-network address, so phones and TVs at home can reach it.
       # Never 0.0.0.0 on a machine that faces the internet.
       - "${ATHENA_BIND:-127.0.0.1}:${ATHENA_PORT:-8800}:8800"
+    volumes:
+      # Settings (API keys, mode 600) and the request log. Given to 99:100 at start; Athena runs as that user.
+      - ./data:/data
     environment:
-      # Your Plex server, as Athena reaches it. Only people with access to that server can use Athena.
+      TZ: ${TZ:-America/New_York}
+      # All optional: set them in the browser instead. When set here, they win and the browser shows them locked.
       PLEX_URL: ${PLEX_URL:-}
-      # Without a key Athena still starts, and /v1/pick answers 503.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ATHENA_MODEL: ${ATHENA_MODEL:-}
-      # With it, library picks go to Jev and only suggestions to Claude.
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
     labels:
-      net.unraid.docker.webui: "http://[IP]:[PORT:8800]/healthz"
+      net.unraid.docker.webui: "http://[IP]:[PORT:8800]/"
       net.unraid.docker.icon: "https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid-icon.png"

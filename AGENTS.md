@@ -18,7 +18,7 @@ picks from the viewer's own library with Claude. What it does and its API are in
   nothing per request (time, exclusions, filters, the request itself) goes in
   them. Those go in `requestText`, after the breakpoints.
 - **Jev answers only library picks.** `answer` in `src/server.ts` sends a request
-  with `suggest: 0` to Jev (`src/jev.ts`) when `TYPESAFE_API_KEY` is set, and
+  with `suggest: 0` to Jev (`src/jev.ts`) when a TypeSafe key is set, and
   everything else to Claude. Jev picks have an empty `reason`, which Ithaca shows
   as none. A Jev failure falls back to Claude, so a viewer still gets picks.
 - **Jev's wording was tested on the real library.** The per-title question
@@ -26,17 +26,27 @@ picks from the viewer's own library with Claude. What it does and its API are in
   0.4 fit cut-off each beat the alternatives tried on real requests. Re-test on
   real requests before changing them; one call takes about 1,000 titles, so
   `BATCH` is 500.
-- **Only people with access to the Plex server.** With `PLEX_URL` set, `/v1/pick`
-  needs the viewer's Plex account token (`X-Plex-Token`), and `PlexGate`
-  (`src/plex.ts`) asks plex.tv's `/api/v2/resources` whether that account reaches
-  the server at `PLEX_URL`. Never check against the Plex server itself: Plex lets
-  home-network addresses in without auth, so it accepts any token from there.
-  Tokens are kept only as SHA-256 hashes, never logged.
+- **Only people with access to the Plex server.** `/v1/pick` needs the viewer's Plex account token
+  (`X-Plex-Token`), and `PlexGate` (`src/plex.ts`) asks plex.tv's `/api/v2/resources` whether that account reaches
+  the chosen server (its machine identifier, from Settings or from `PLEX_URL`'s `/identity`). Never check against the
+  Plex server itself: Plex lets home-network addresses in without auth, so it accepts any token from there. Until a
+  server is chosen, `/v1/pick` answers 503. Tokens are kept only as SHA-256 hashes, never logged.
+- **Settings: env wins, secrets stay put.** `src/settings.ts` keeps `data/settings.json` (mode 600, atomic writes);
+  each env var that is set overrides its field and the UI shows it locked. `Live` (`src/live.ts`) is read on every
+  request, so saving applies without a restart. Keys are rendered only through `mask`, never in full, never logged.
+  Web sessions (`src/sessions.ts`) hold the Plex token in memory only.
+- **Only the server's owner changes settings.** Owner means plex.tv lists the server with `owned: true` for that
+  account. Before any server is chosen, whoever signs in first sets Athena up, from servers they own. The daily limit
+  never applies to the owner; Ithaca's paired picks and suggestions requests (same text within two minutes) count once.
+- **The web UI is small on purpose.** Hono JSX rendered on the server (`src/web.tsx`), one stylesheet and one script
+  in `public/`. Design context is in `PRODUCT.md`; the navy and gold belong to the header and icon only.
+- **Images are for other people.** `.github/workflows/image.yml` publishes `ghcr.io/inceptyon-labs/athena` on a `v*`
+  tag, for Unraid Community Apps (`unraid/athena.xml`) and Compose users. Uranus never pulls it: it builds from source
+  with `deploy`.
 - **The repo is public (AGPL-3.0).** No hosts, addresses or keys in it; per-host
   values live in the box's `.env`.
 
 ## Verify
 
-`bun run check` and `bun test`. A live check needs the key:
-`curl -s http://<host>:8800/healthz`, which names the Plex server it checks
-sign-ins against.
+`bun run check` and `bun test`. A live check: `curl -s http://<host>:8800/healthz`, which names the Plex server it
+checks sign-ins against, and the status page at `/`.
