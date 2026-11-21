@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { pickWithJev } from './jev';
 import { log, warn } from './log';
 import { PickError, PickRequest, pick, type PickOutcome } from './pick';
+import type { PlexGate } from './plex';
 
 export interface Deps {
 	client: Anthropic | null;
@@ -13,9 +14,18 @@ export interface Deps {
 	/** Replaced in tests. */
 	pick?: (client: Anthropic, model: string, req: PickRequest) => Promise<PickOutcome>;
 	pickWithJev?: (key: string, req: PickRequest) => Promise<PickOutcome>;
+	/** Checks callers against the Plex server. Without it (no PLEX_URL) anyone who can reach Athena may ask. */
+	gate?: PlexGate | null;
 }
 
-export function createApp({ client, model, jevKey = null, pick: runPick = pick, pickWithJev: runJev = pickWithJev }: Deps) {
+export function createApp({
+	client,
+	model,
+	jevKey = null,
+	pick: runPick = pick,
+	pickWithJev: runJev = pickWithJev,
+	gate = null,
+}: Deps) {
 	const app = new Hono();
 
 	/** Jev for picks from the library; Claude for suggestions, and when Jev fails. */
@@ -28,17 +38,36 @@ export function createApp({ client, model, jevKey = null, pick: runPick = pick, 
 				warn(`jev failed, asking Claude: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
-		if (!client) throw new PickError('Mentor has no Anthropic API key yet.', 503);
+		if (!client) throw new PickError('Athena has no Anthropic API key yet.', 503);
 		return { outcome: await runPick(client, model, req), by: model };
 	}
 
-	// `service` is how Ithaca recognises Mentor when it looks for it on the Plex server's address.
-	app.get('/healthz', (c) =>
-		c.json({ ok: true, ready: client !== null || jevKey !== null, model, jev: jevKey !== null, service: 'mentor' }),
+	// `service` is how Ithaca recognises Athena when it looks for it on the Plex server's address, and `server` is the
+	// Plex server whose token Ithaca sends.
+	app.get('/healthz', async (c) =>
+		c.json({
+			ok: true,
+			ready: client !== null || jevKey !== null,
+			model,
+			jev: jevKey !== null,
+			service: 'athena',
+			server: gate ? await gate.machineIdentifier() : null,
+		}),
 	);
 
 	app.post('/v1/pick', async (c) => {
-		if (!client && !jevKey) return c.json({ error: 'Mentor has no API key yet.' }, 503);
+		if (gate) {
+			const token = c.req.header('X-Plex-Token');
+			let allowed = false;
+			try {
+				allowed = token ? await gate.allows(token) : false;
+			} catch (error) {
+				warn(`plex sign-in check failed: ${error instanceof Error ? error.message : String(error)}`);
+				return c.json({ error: "Athena couldn't reach Plex to check your sign-in. Try again in a minute." }, 502);
+			}
+			if (!allowed) return c.json({ error: 'Athena only answers people with access to its Plex server.' }, 401);
+		}
+		if (!client && !jevKey) return c.json({ error: 'Athena has no API key yet.' }, 503);
 		let body: unknown;
 		try {
 			body = await c.req.json();

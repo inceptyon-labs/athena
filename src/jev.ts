@@ -165,8 +165,8 @@ export async function pickWithJev(key: string, req: PickRequest): Promise<PickOu
 }
 
 async function describe(response: Response): Promise<string> {
-	if (response.status === 401) return "Mentor's TypeSafe API key was rejected.";
-	if (response.status === 429) return 'Jev is rate limiting Mentor. Try again in a minute.';
+	if (response.status === 401) return "Athena's TypeSafe API key was rejected.";
+	if (response.status === 429) return 'Jev is rate limiting Athena. Try again in a minute.';
 	if (response.status >= 500) return 'Jev is busy. Try again.';
 	const detail = (await response.text().catch(() => '')).slice(0, 300);
 	return `Jev returned an error (${response.status}): ${detail}`;

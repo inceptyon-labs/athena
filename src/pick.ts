@@ -296,8 +296,8 @@ export async function pick(client: Anthropic, model: string, req: PickRequest): 
 
 function describe(error: unknown): string {
 	if (error instanceof Anthropic.APIError) {
-		if (error.status === 401 || error.status === 403) return "Mentor's Anthropic API key was rejected.";
-		if (error.status === 429) return 'Claude is rate limiting Mentor. Try again in a minute.';
+		if (error.status === 401 || error.status === 403) return "Athena's Anthropic API key was rejected.";
+		if (error.status === 429) return 'Claude is rate limiting Athena. Try again in a minute.';
 		if (error.status && error.status >= 500) return 'Claude is busy. Try again.';
 		return `Claude returned an error (${error.status ?? 'no status'}): ${error.message}`;
 	}
