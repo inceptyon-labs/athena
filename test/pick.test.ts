@@ -9,6 +9,7 @@ import {
 	requestText,
 } from '../src/pick';
 import { createApp } from '../src/server';
+import { anyone } from './helpers';
 
 const request = PickRequest.parse({
 	request: 'something funny under two hours',
@@ -110,13 +111,14 @@ test('minimums are percent for Rotten Tomatoes and out of 10 for IMDb, whatever 
 describe('POST /v1/pick', () => {
 	const body = JSON.stringify({ request: 'funny', kind: 'movie', titles: [{ id: '1', title: 'Airplane!' }] });
 	const post = (app: ReturnType<typeof createApp>, payload: string) =>
-		app.request('/v1/pick', { method: 'POST', body: payload, headers: { 'content-type': 'application/json' } });
+		app.request('/v1/pick', { method: 'POST', body: payload, headers: { 'content-type': 'application/json', 'X-Plex-Token': 'token' } });
 
 	test('answers with the picks, suggestions and minimums', async () => {
 		const minimums = { critics: 80, audience: null, imdb: null };
 		const app = createApp({
 			client: {} as never,
 			model: 'test',
+			gate: anyone,
 			pick: async () => ({
 				picks: [{ id: '1', reason: 'Gags.' }],
 				suggestions: [],
@@ -135,8 +137,8 @@ describe('POST /v1/pick', () => {
 	});
 
 	test('a bad body is a 400, a missing key a 503', async () => {
-		const app = createApp({ client: {} as never, model: 'test' });
+		const app = createApp({ client: {} as never, model: 'test', gate: anyone });
 		expect((await post(app, '{"request":""}')).status).toBe(400);
-		expect((await post(createApp({ client: null, model: 'test' }), body)).status).toBe(503);
+		expect((await post(createApp({ client: null, model: 'test', gate: anyone }), body)).status).toBe(503);
 	});
 });

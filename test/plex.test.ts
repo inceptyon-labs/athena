@@ -1,21 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { PlexGate } from '../src/plex';
+import { PlexGate, PlexTV } from '../src/plex';
 import { createApp } from '../src/server';
-
-/** A Plex server and plex.tv that know one account, which can reach the server. */
-function fakePlex(good = 'good-token', status = 401) {
-	let calls = 0;
-	const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
-		const path = new URL(String(url)).pathname;
-		if (path === '/identity') return Response.json({ MediaContainer: { machineIdentifier: 'machine-1' } });
-		calls += 1;
-		const token = new Headers(init?.headers).get('X-Plex-Token');
-		if (token === good) return Response.json([{ clientIdentifier: 'other-server' }, { clientIdentifier: 'machine-1' }]);
-		if (token === 'stranger') return Response.json([{ clientIdentifier: 'other-server' }]);
-		return new Response('', { status });
-	}) as typeof fetch;
-	return { fetcher, calls: () => calls };
-}
+import { fakePlex } from './helpers';
 
 const pick = async () => ({
 	picks: [{ id: '1', reason: '' }],
@@ -32,40 +18,59 @@ function ask(app: ReturnType<typeof createApp>, token?: string) {
 	return app.request('/v1/pick', { method: 'POST', headers, body });
 }
 
+const gateFor = (fetcher: typeof fetch, server: { id: string } | { url: string } = { url: 'http://plex:32400' }) =>
+	new PlexGate(server, new PlexTV('athena-test', fetcher, 'https://plex.tv'), fetcher);
+
 describe('Plex sign-in', () => {
 	test('an account that can reach the server gets picks; others get 401', async () => {
 		const plex = fakePlex();
-		const app = createApp({ client: {} as never, model: 'test', pick, gate: new PlexGate('http://plex:32400', plex.fetcher) });
-		expect((await ask(app, 'good-token')).status).toBe(200);
+		const app = createApp({ client: {} as never, model: 'test', pick, gate: gateFor(plex.fetcher) });
+		expect((await ask(app, 'owner-token')).status).toBe(200);
+		expect((await ask(app, 'friend-token')).status).toBe(200);
 		expect((await ask(app, 'bad-token')).status).toBe(401);
 		expect((await ask(app, 'stranger')).status).toBe(401);
 		expect((await ask(app)).status).toBe(401);
 	});
 
+	test('the viewer is named, and only the server owner counts as its owner', async () => {
+		const gate = gateFor(fakePlex().fetcher);
+		expect(await gate.viewer('owner-token')).toEqual({ id: 'owner-id', name: 'Owner', owner: true });
+		expect(await gate.viewer('friend-token')).toEqual({ id: 'friend-id', name: 'Friend', owner: false });
+	});
+
+	test('a server chosen in settings needs no address', async () => {
+		const plex = fakePlex();
+		const gate = gateFor(plex.fetcher, { id: 'machine-1' });
+		expect(await gate.machineIdentifier()).toBe('machine-1');
+		expect((await gate.viewer('friend-token'))?.name).toBe('Friend');
+	});
+
 	test('answers are remembered, so Plex is asked once per token', async () => {
 		const plex = fakePlex();
-		const gate = new PlexGate('http://plex:32400', plex.fetcher);
-		expect(await gate.allows('good-token')).toBe(true);
-		expect(await gate.allows('good-token')).toBe(true);
-		expect(await gate.allows('bad-token')).toBe(false);
-		expect(await gate.allows('bad-token')).toBe(false);
+		const gate = gateFor(plex.fetcher);
+		expect(await gate.viewer('owner-token')).not.toBeNull();
+		expect(await gate.viewer('owner-token')).not.toBeNull();
+		expect(await gate.viewer('bad-token')).toBeNull();
+		expect(await gate.viewer('bad-token')).toBeNull();
 		expect(plex.calls()).toBe(2);
 	});
 
 	test('a Plex error is a 502, not a refusal', async () => {
-		const plex = fakePlex('good-token', 500);
-		const app = createApp({ client: {} as never, model: 'test', pick, gate: new PlexGate('http://plex:32400', plex.fetcher) });
+		const plex = fakePlex(500);
+		const app = createApp({ client: {} as never, model: 'test', pick, gate: gateFor(plex.fetcher) });
 		expect((await ask(app, 'other-token')).status).toBe(502);
 	});
 
 	test('the health check names the Plex server', async () => {
-		const plex = fakePlex();
-		const app = createApp({ client: null, model: 'test', gate: new PlexGate('http://plex:32400', plex.fetcher) });
+		const app = createApp({ client: null, model: 'test', gate: gateFor(fakePlex().fetcher) });
 		expect((await (await app.request('/healthz')).json()).server).toBe('machine-1');
 	});
 
-	test('without PLEX_URL anyone may ask', async () => {
+	test('until a Plex server is chosen, Athena answers no one', async () => {
 		const app = createApp({ client: {} as never, model: 'test', pick });
-		expect((await ask(app)).status).toBe(200);
+		const response = await ask(app, 'owner-token');
+		expect(response.status).toBe(503);
+		expect(((await response.json()) as { error: string }).error).toContain('set up');
+		expect((await (await app.request('/healthz')).json()).ready).toBe(false);
 	});
 });

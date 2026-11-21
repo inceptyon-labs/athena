@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { jevQuestions, jevTitleLine, rankPicks, readMinimums } from '../src/jev';
 import { PickRequest, type PickOutcome } from '../src/pick';
 import { createApp } from '../src/server';
+import { anyone } from './helpers';
 
 const request = PickRequest.parse({
 	request: 'a sci fi space thriller',
@@ -66,6 +67,7 @@ test('with a TypeSafe key, picks go to Jev and suggestions to Claude, which also
 		client: {} as never,
 		model: 'test',
 		jevKey: 'key',
+		gate: anyone,
 		pick: async () => outcome('claude'),
 		pickWithJev: async () => {
 			if (jevFails) throw new Error('down');
@@ -76,7 +78,7 @@ test('with a TypeSafe key, picks go to Jev and suggestions to Claude, which also
 		const response = await app.request('/v1/pick', {
 			method: 'POST',
 			body: JSON.stringify({ request: 'funny', kind: 'movie', titles: [{ id: '1', title: 'Airplane!' }], ...body }),
-			headers: { 'content-type': 'application/json' },
+			headers: { 'content-type': 'application/json', 'X-Plex-Token': 'token' },
 		});
 		return ((await response.json()) as { picks: { reason: string }[] }).picks[0]?.reason;
 	};
