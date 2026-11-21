@@ -34,25 +34,36 @@ describe('Plex sign-in', () => {
 
 	test('the viewer is named, and only the server owner counts as its owner', async () => {
 		const gate = gateFor(fakePlex().fetcher);
-		expect(await gate.viewer('owner-token')).toEqual({ id: 'owner-id', name: 'Owner', owner: true });
-		expect(await gate.viewer('friend-token')).toEqual({ id: 'friend-id', name: 'Friend', owner: false });
+		expect(await gate.viewer('owner-token')).toEqual({ id: '1001', name: 'Owner', owner: true });
+		expect(await gate.viewer('friend-token')).toEqual({ id: '1002', name: 'friend', owner: false });
 	});
 
 	test('a server chosen in settings needs no address', async () => {
 		const plex = fakePlex();
 		const gate = gateFor(plex.fetcher, { id: 'machine-1' });
 		expect(await gate.machineIdentifier()).toBe('machine-1');
-		expect((await gate.viewer('friend-token'))?.name).toBe('Friend');
+		expect((await gate.viewer('friend-token'))?.name).toBe('friend');
 	});
 
-	test('answers are remembered, so Plex is asked once per token', async () => {
+	test('access and the account are remembered together, so plex.tv is asked once per token', async () => {
+		let now = 0;
 		const plex = fakePlex();
-		const gate = gateFor(plex.fetcher);
+		const gate = new PlexGate({ id: 'machine-1' }, new PlexTV('athena-test', plex.fetcher), plex.fetcher, () => now);
 		expect(await gate.viewer('owner-token')).not.toBeNull();
 		expect(await gate.viewer('owner-token')).not.toBeNull();
 		expect(await gate.viewer('bad-token')).toBeNull();
 		expect(await gate.viewer('bad-token')).toBeNull();
-		expect(plex.calls()).toBe(2);
+		expect([plex.calls(), plex.accounts()]).toEqual([2, 2]);
+		now += 11 * 60_000;
+		expect((await gate.viewer('owner-token'))?.name).toBe('Owner');
+		expect([plex.calls(), plex.accounts()]).toEqual([3, 3]);
+	});
+
+	test('an account is its plex.tv id and title, or its username without one', async () => {
+		const plexTV = new PlexTV('athena-test', fakePlex().fetcher);
+		expect(await plexTV.account('owner-token')).toMatchObject({ id: '1001', name: 'Owner' });
+		expect(await plexTV.account('friend-token')).toMatchObject({ id: '1002', name: 'friend' });
+		expect(await plexTV.account('bad-token')).toBeNull();
 	});
 
 	test('a Plex error is a 502, not a refusal', async () => {

@@ -11,6 +11,10 @@ export interface Stored {
 	typesafeKey?: string | null;
 	/** Describe Its a day for each person except the owner. Null or 0 for no limit. */
 	dailyLimit?: number | null;
+	/** Athena's https address as friends away from home reach it, through the owner's reverse proxy. */
+	publicURL?: string | null;
+	/** The owner's name as Plex shows it, for the daily limit's message. Saved whenever the owner saves settings. */
+	ownerName?: string | null;
 	/** Athena's own id with plex.tv, made once. */
 	clientId?: string;
 }
@@ -23,6 +27,8 @@ export interface Effective {
 	model: string;
 	typesafeKey: string | null;
 	dailyLimit: number | null;
+	publicURL: string | null;
+	ownerName: string | null;
 	clientId: string;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
 	env: Partial<Record<'server' | 'anthropicKey' | 'model' | 'typesafeKey', string>>;
@@ -59,6 +65,8 @@ export class Settings {
 			model: model ?? this.stored.model ?? DEFAULT_MODEL,
 			typesafeKey: typesafeKey ?? this.stored.typesafeKey ?? null,
 			dailyLimit: limit && limit > 0 ? limit : null,
+			publicURL: this.stored.publicURL ?? null,
+			ownerName: this.stored.ownerName ?? null,
 			clientId: this.stored.clientId ?? '',
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),

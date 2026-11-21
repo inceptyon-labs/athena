@@ -59,6 +59,23 @@ describe('usage', () => {
 		expect(usage.totals()).toEqual({ today: 2, month: 2, spendToday: 0.25, spendMonth: 0.25, unpriced: true });
 	});
 
+	test("today's Describe Its per person, under their latest name, most first", () => {
+		let now = at('2026-11-20T21:00:00');
+		const usage = new Usage(':memory:', () => now);
+		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner' }));
+		now = at('2026-11-21T09:00:00');
+		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner' }));
+		usage.record(entry({ request: 'one' }));
+		usage.record(entry({ request: 'one', suggestions: 6 }));
+		usage.record(entry({ request: 'two', viewer: 'Friend Renamed' }));
+		usage.record(entry({ viewerId: 'kid-id', viewer: 'Kid', status: 502, by: '', cost: 0 }));
+		expect(usage.todayByPerson()).toEqual([
+			{ viewerId: 'friend-id', viewer: 'Friend Renamed', count: 2 },
+			{ viewerId: 'owner-id', viewer: 'Owner', count: 1 },
+			{ viewerId: 'kid-id', viewer: 'Kid', count: 0 },
+		]);
+	});
+
 	test('the recent list is newest first, up to the number asked', () => {
 		let now = at('2026-11-21T08:00:00');
 		const usage = new Usage(':memory:', () => now);
@@ -94,7 +111,15 @@ describe('daily limit', () => {
 	};
 	const setup = () => {
 		const usage = new Usage(':memory:');
-		const app = createApp({ client: {} as never, model: 'claude-haiku-5-5', gate, usage, dailyLimit: 2, pick: async () => outcome });
+		const app = createApp({
+			client: {} as never,
+			model: 'claude-haiku-5-5',
+			gate,
+			usage,
+			dailyLimit: 2,
+			ownerName: 'Jason',
+			pick: async () => outcome,
+		});
 		const ask = (token: string, request: string) =>
 			app.request('/v1/pick', {
 				method: 'POST',
@@ -111,7 +136,7 @@ describe('daily limit', () => {
 		const refused = await ask('friend-token', 'sad');
 		expect(refused.status).toBe(429);
 		expect(await refused.json()).toEqual({
-			error: "You've used Describe It 2 times today, this Athena's daily limit. It resets at midnight.",
+			error: "You've used Describe It 2 times today on Jason's Athena. It resets at midnight.",
 		});
 		expect(usage.recent(1)[0]).toMatchObject({ status: 429, viewer: 'Friend', request: 'sad' });
 		expect(usage.recent(2)[1]).toMatchObject({ status: 200, by: 'claude-haiku-5-5', inputTokens: 25_000 });
@@ -122,6 +147,34 @@ describe('daily limit', () => {
 		await ask('friend-token', 'funny');
 		await ask('friend-token', 'scary');
 		expect((await ask('friend-token', 'scary')).status).toBe(200);
+	});
+
+	test('a bad body or a failed answer uses none of the limit', async () => {
+		const usage = new Usage(':memory:');
+		let fail = true;
+		const app = createApp({
+			client: {} as never,
+			model: 'claude-haiku-5-5',
+			gate,
+			usage,
+			dailyLimit: 1,
+			pick: async () => {
+				if (fail) throw new Error('Claude is busy. Try again.');
+				return outcome;
+			},
+		});
+		const ask = (body: string) =>
+			app.request('/v1/pick', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'X-Plex-Token': 'friend-token' },
+				body,
+			});
+		const good = JSON.stringify({ request: 'funny', kind: 'movie', titles: [{ id: '1', title: 'Airplane!' }] });
+		expect((await ask('{"request": ""}')).status).toBe(400);
+		expect((await ask(good)).status).toBe(502);
+		fail = false;
+		expect((await ask(good)).status).toBe(200);
+		expect((await ask(good.replace('funny', 'scary'))).status).toBe(429);
 	});
 
 	test('the owner has no limit', async () => {

@@ -1,4 +1,4 @@
-// The one bit of script: Settings' Test key button, which asks Athena to check the key against the chosen model.
+// Two bits of script. Settings' Test key button, which asks Athena to check the key against the chosen model:
 const button = document.querySelector('[data-test-key]');
 if (button) {
 	const form = button.closest('form');
@@ -26,5 +26,24 @@ if (button) {
 			button.disabled = false;
 			button.textContent = 'Test key';
 		}
+	});
+}
+
+// Share's Copy button. The clipboard API needs HTTPS, which Athena at home doesn't have, so it falls back to selecting
+// the text and copying that.
+for (const copy of document.querySelectorAll('[data-copy]')) {
+	const field = document.getElementById(copy.dataset.copy);
+	copy.hidden = false;
+	copy.addEventListener('click', async () => {
+		let copied = false;
+		try {
+			await navigator.clipboard.writeText(field.value);
+			copied = true;
+		} catch {
+			field.select();
+			copied = document.execCommand('copy');
+		}
+		copy.textContent = copied ? 'Copied' : 'Selected';
+		setTimeout(() => (copy.textContent = 'Copy'), 2000);
 	});
 }

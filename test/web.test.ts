@@ -144,3 +144,53 @@ describe('who sees what', () => {
 		expect(live.effective.server).toEqual({ id: 'machine-1', name: 'Uranus' });
 	});
 });
+
+describe('sharing with friends', () => {
+	const ready = { server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY };
+
+	test('the owner sets a public address, https only, and the owner is named for the daily limit', async () => {
+		const { live, post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const bad = await post('/settings', { server: 'machine-1', publicURL: 'http://athena.example.com' }, cookie);
+		expect(bad.headers.get('Location')).toContain('problem=');
+		expect(live.effective.publicURL).toBeNull();
+		await post('/settings', { server: 'machine-1', publicURL: 'https://Athena.Example.com/' }, cookie);
+		expect(live.effective.publicURL).toBe('https://athena.example.com');
+		expect(live.ownerName).toBe('Owner');
+		await post('/settings', { server: 'machine-1', publicURL: '' }, cookie);
+		expect(live.effective.publicURL).toBeNull();
+	});
+
+	test('the share page gives the link to copy, its QR code and the address to type on Apple TV', async () => {
+		const { get, signIn } = athena({ ...ready, publicURL: 'https://athena.example.com' });
+		const page = await (await get('/share', await signIn('owner-token'))).text();
+		expect(page).toContain('value="ithaca://athena?url=https%3A%2F%2Fathena.example.com"');
+		expect(page).toContain('data-copy="share-link"');
+		expect(page).toContain('<svg');
+		expect(page).toContain('<p class="address">https://athena.example.com</p>');
+	});
+
+	test('without a public address, the share page says Athena is home-only', async () => {
+		const { get, signIn } = athena(ready);
+		const page = await (await get('/share', await signIn('owner-token'))).text();
+		expect(page).toContain('home-only');
+		expect(page).not.toContain('ithaca://');
+	});
+
+	test('only the owner opens the share page', async () => {
+		const { get, signIn } = athena({ ...ready, publicURL: 'https://athena.example.com' });
+		expect((await get('/share', await signIn('friend-token'))).headers.get('Location')).toBe('/');
+	});
+
+	test("the status page lists today's Describe Its per person, against the limit for all but the owner", async () => {
+		const { usage, get, signIn } = athena({ ...ready, dailyLimit: 2 });
+		const row = { kind: 'movie', picks: 9, suggestions: 0, by: 'jev', ms: 250, status: 200, error: null, inputTokens: 1, outputTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+		usage.record({ ...row, viewerId: '1001', viewer: 'Owner', request: 'funny' });
+		usage.record({ ...row, viewerId: '1002', viewer: 'friend', request: 'funny' });
+		usage.record({ ...row, viewerId: '1002', viewer: 'friend', request: 'scary' });
+		const page = await (await get('/', await signIn('owner-token'))).text();
+		expect(page).toContain('Today by person');
+		expect(page).toMatch(/<li class="full"><span class="person">friend<\/span><span class="count"><strong>2<\/strong> of 2/);
+		expect(page).toMatch(/Owner<span class="you">you, no limit<\/span><\/span><span class="count"><strong>1<\/strong><\/span>/);
+	});
+});

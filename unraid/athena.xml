@@ -8,7 +8,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/inceptyon-labs/athena/issues</Support>
   <Project>https://github.com/inceptyon-labs/athena</Project>
-  <Overview>Athena answers Describe It in Ithaca, the Plex app for Apple TV, iPhone and iPad. You type what you're in the mood for, and Claude picks from your own Plex library, with titles to request when Seerr is connected. Only people with access to your Plex server can use it. After installing, open the WebUI, sign in with Plex and add an Anthropic API key. Keep port 8800 so Ithaca finds Athena by itself.</Overview>
+  <Overview>Athena answers Describe It in Ithaca, the Plex app for Apple TV, iPhone and iPad. You type what you're in the mood for, and Claude picks from your own Plex library, with titles to request when Seerr is connected. Only people with access to your Plex server can use it. Run it next to Plex and Seerr. After installing, open the WebUI, sign in with Plex and add an Anthropic API key. Keep port 8800 so your household's Ithaca finds Athena by itself; friends away from home reach it through your reverse proxy, like Seerr.</Overview>
   <Category>MediaServer:Video Tools:</Category>
   <WebUI>http://[IP]:[PORT:8800]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid/athena.xml</TemplateURL>

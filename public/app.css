@@ -521,6 +521,137 @@ tr.failed td.answer {
 	color: var(--bad);
 }
 
+/* Today by person */
+
+.people {
+	margin-top: 36px;
+}
+
+.people h2 {
+	margin-bottom: 12px;
+}
+
+.people ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	max-width: 32rem;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	overflow: hidden;
+}
+
+.people li {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 12px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--line);
+	font-size: 0.9375rem;
+}
+
+.people li:last-child {
+	border-bottom: 0;
+}
+
+.you {
+	margin-left: 8px;
+	font-size: 0.75rem;
+	color: var(--ink-2);
+	border: 1px solid var(--line-strong);
+	border-radius: 999px;
+	padding: 0 7px;
+	white-space: nowrap;
+}
+
+.count {
+	color: var(--ink-2);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.count strong {
+	color: var(--ink);
+	font-weight: 650;
+}
+
+.people li.full .count,
+.people li.full .count strong {
+	color: var(--warn);
+}
+
+/* Share */
+
+.share {
+	display: grid;
+	gap: 16px;
+	max-width: 46rem;
+}
+
+.share > section {
+	display: grid;
+	align-content: start;
+	gap: 10px;
+	padding: 20px;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+}
+
+.share > .share-phone {
+	grid-template-columns: 200px minmax(0, 1fr);
+	align-items: start;
+	gap: 24px;
+}
+
+.share-text {
+	display: grid;
+	gap: 10px;
+}
+
+.share-text .label {
+	margin-top: 8px;
+}
+
+.qr {
+	line-height: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.qr svg {
+	display: block;
+	width: 100%;
+	height: auto;
+}
+
+.copy {
+	display: flex;
+	gap: 8px;
+}
+
+.copy input {
+	flex: 1;
+	min-width: 0;
+	font: 500 0.8125rem/1.4 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.address {
+	font-size: clamp(1.25rem, 5vw, 1.875rem);
+	font-weight: 650;
+	letter-spacing: -0.01em;
+	line-height: 1.2;
+	overflow-wrap: anywhere;
+	user-select: all;
+}
+
+.share-after {
+	max-width: 64ch;
+}
+
 /* Settings */
 
 .page-head {
@@ -582,6 +713,8 @@ legend + * {
 
 input[type='password'],
 input[type='number'],
+input[type='url'],
+input[type='text'],
 select {
 	width: 100%;
 	min-height: 44px;
@@ -733,6 +866,16 @@ select:focus-visible {
 /* Phones */
 
 @media (max-width: 720px) {
+	.share > .share-phone {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 16px;
+	}
+
+	.qr {
+		order: 1;
+		width: min(232px, 100%);
+	}
+
 	.totals {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
@@ -802,6 +945,10 @@ select:focus-visible {
 		display: none;
 	}
 
+	.quiet {
+		white-space: nowrap;
+	}
+
 	.bar-inner {
 		gap: 8px 12px;
 	}
@@ -812,5 +959,12 @@ select:focus-visible {
 
 	.state {
 		padding: 16px;
+	}
+}
+
+/* Three nav items and Sign out leave no room for the name beside the icon. */
+@media (max-width: 420px) {
+	.brand span {
+		display: none;
 	}
 }

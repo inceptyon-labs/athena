@@ -58,7 +58,7 @@ export class PlexTV {
 			}));
 	}
 
-	/** The account's id and the name Plex shows for it. */
+	/** The account's id and the name Plex shows for it: its title, which a Plex Home profile always has, or its username. */
 	async account(token: string): Promise<{ id: string; name: string; thumb: string | null } | null> {
 		const response = await this.fetcher(`${this.base}/api/v2/user`, {
 			headers: this.headers(token),
@@ -66,10 +66,9 @@ export class PlexTV {
 		});
 		if (response.status === 401 || response.status === 403) return null;
 		if (!response.ok) throw new Error(`plex.tv answered ${response.status}`);
-		const user = (await response.json()) as { id?: number; uuid?: string; username?: string; title?: string; thumb?: string };
-		const id = user.uuid ?? (user.id !== undefined ? String(user.id) : null);
-		if (!id) throw new Error('plex.tv sent an account without an id');
-		return { id, name: user.title || user.username || 'Plex user', thumb: user.thumb ?? null };
+		const user = (await response.json()) as { id?: number; username?: string; title?: string; thumb?: string };
+		if (user.id === undefined) throw new Error('plex.tv sent an account without an id');
+		return { id: String(user.id), name: user.title || user.username || 'Plex user', thumb: user.thumb ?? null };
 	}
 
 	/** Starts a sign-in: a PIN the viewer approves on app.plex.tv. */

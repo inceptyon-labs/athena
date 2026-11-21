@@ -10,6 +10,8 @@ picks from the viewer's own library with Claude. What it does and its API are in
   `src/pick.ts` mirrors `AthenaPickRequest` in Ithaca
   (`Ithaca/Sources/Features/PickSomething/PickSomethingAthena.swift`). Change both
   together, and keep new fields optional so an older app keeps working.
+- **The share link is Ithaca's contract too.** `shareLink` in `src/share.ts` makes `ithaca://athena?url=<address>`:
+  scheme `ithaca`, host `athena`, one query item `url`, https only, nothing else. Ithaca parses it; change both together.
 - **Picks only come from the list sent.** `cleanPicks` drops unknown, repeated and
   excluded ids; never return a title the request did not contain. Suggestions are
   free text that Ithaca checks against Seerr, so Athena only dedupes them.

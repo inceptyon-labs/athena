@@ -97,6 +97,21 @@ export class Usage {
 		return row.n;
 	}
 
+	/** Everyone who asked today with their Describe Its, most first, under the name they last had. */
+	todayByPerson(): { viewerId: string; viewer: string | null; count: number }[] {
+		// With MAX(rowid) the only min or max, SQLite takes the bare `viewer` from that latest row.
+		return this.db
+			.query(
+				`SELECT viewer_id AS viewerId, viewer, MAX(rowid) AS last, SUM(counted) AS count FROM requests
+				WHERE viewer_id IS NOT NULL AND at >= ? GROUP BY viewer_id ORDER BY count DESC, last DESC`,
+			)
+			.all(startOfDay(this.now()))
+			.map((row) => {
+				const { viewerId, viewer, count } = row as { viewerId: string; viewer: string | null; count: number };
+				return { viewerId, viewer, count };
+			});
+	}
+
 	record(entry: Omit<Entry, 'at'>) {
 		const at = this.now();
 		const counted = entry.status === 200 && !(entry.viewerId && this.repeats(entry.viewerId, entry.request));

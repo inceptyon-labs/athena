@@ -8,6 +8,7 @@ import { warn } from './log';
 import type { Server } from './plex';
 import { MODELS } from './prices';
 import { mask } from './settings';
+import { publicAddress, qrSVG, shareLink } from './share';
 import type { Session, Sessions } from './sessions';
 import type { Entry, Usage } from './usage';
 
@@ -80,7 +81,7 @@ function result(entry: Entry) {
 const Layout: FC<{
 	title: string;
 	signedIn?: Session | null;
-	nav?: 'status' | 'settings';
+	nav?: 'status' | 'share' | 'settings';
 	bare?: boolean;
 	children: Child;
 }> = ({ title, signedIn, nav, bare, children }) => (
@@ -111,6 +112,9 @@ const Layout: FC<{
 								<nav aria-label="Main">
 									<a href="/" aria-current={nav === 'status' ? 'page' : undefined}>
 										Status
+									</a>
+									<a href="/share" aria-current={nav === 'share' ? 'page' : undefined}>
+										Share
 									</a>
 									<a href="/settings" aria-current={nav === 'settings' ? 'page' : undefined}>
 										Settings
@@ -223,8 +227,8 @@ export function mountWeb(app: Hono, web: Web) {
 					</button>
 				</form>
 				<p class="hint">
-					The owner of the Plex server sets Athena up here. Anyone the server is shared with can sign in to see their
-					own use.
+					Athena runs next to Plex and Seerr. The Plex server's owner sets it up here; anyone the server is shared
+					with can sign in to see their own use.
 				</p>
 			</section>
 		</Layout>
@@ -388,6 +392,7 @@ export function mountWeb(app: Hono, web: Web) {
 		const ready = readiness(servers, machine);
 		const totals = usage.totals();
 		const recent = usage.recent(50);
+		const people = usage.todayByPerson();
 		const limit = live.dailyLimit;
 		return c.html(
 			<Layout title="Status" signedIn={s} nav="status">
@@ -441,6 +446,30 @@ export function mountWeb(app: Hono, web: Web) {
 					</div>
 				</dl>
 
+				{people.length > 0 && (
+					<section class="people">
+						<h2>Today by person</h2>
+						<ul>
+							{people.map((person) => {
+								const you = person.viewerId === s.accountId;
+								const full = !you && limit !== null && person.count >= limit;
+								return (
+									<li class={full ? 'full' : undefined}>
+										<span class="person">
+											{person.viewer ?? 'Unknown'}
+											{you && <span class="you">you, no limit</span>}
+										</span>
+										<span class="count">
+											<strong>{person.count}</strong>
+											{!you && limit ? ` of ${limit}` : ''}
+										</span>
+									</li>
+								);
+							})}
+						</ul>
+					</section>
+				)}
+
 				<section class="recent">
 					<h2>Recent requests</h2>
 					{recent.length === 0 ? (
@@ -485,6 +514,83 @@ export function mountWeb(app: Hono, web: Web) {
 		);
 	});
 
+	app.get('/share', async (c) => {
+		const found = await who(c);
+		if ('page' in found) return found.page;
+		const { s, role } = found;
+		if (role === 'setup') return c.redirect('/settings', 303);
+		if (role !== 'owner') return c.redirect('/', 303);
+		const address = live.effective.publicURL;
+		return c.html(
+			<Layout title="Share" signedIn={s} nav="share">
+				<div class="page-head">
+					<h1>Share with friends</h1>
+					<p class="lede">
+						Your household's Ithaca finds Athena on port 8800 by itself. Friends who use your Plex from outside your
+						home need its public address, the way they reach your Seerr.
+					</p>
+				</div>
+				{address ? (
+					<ShareTo address={address} />
+				) : (
+					<section class="note">
+						<p>
+							Athena is home-only until it has a public address: an HTTPS address in front of port 8800, from a reverse
+							proxy with a certificate. Add it in Settings, and this page gives you a link, a QR code and the address to
+							type on Apple TV.
+						</p>
+						<p>
+							<a href="/settings#publicURL">Add a public address</a>
+						</p>
+					</section>
+				)}
+			</Layout>,
+		);
+	});
+
+	/** The link, its QR code and the address to type, for a friend's iPhone, iPad or Apple TV. */
+	const ShareTo: FC<{ address: string }> = ({ address }) => {
+		const link = shareLink(address);
+		return (
+			<div class="share">
+				<section class="share-phone">
+					<div class="qr">{raw(qrSVG(link))}</div>
+					<div class="share-text">
+						<h2>iPhone and iPad</h2>
+						<p class="hint">Scanned with the camera, the code opens Ithaca with Athena's address filled in.</p>
+						<label class="label" for="share-link">
+							Or send the link
+						</label>
+						<div class="copy">
+							<input id="share-link" type="text" value={link} readonly spellcheck={false} />
+							<button type="button" class="secondary" data-copy="share-link" hidden>
+								Copy
+							</button>
+						</div>
+					</div>
+				</section>
+				<section class="share-tv">
+					<h2>Apple TV</h2>
+					<p class="hint">In Ithaca, under Settings → Athena, type:</p>
+					<p class="address">{address}</p>
+				</section>
+				<p class="hint share-after">
+					Ithaca saves the address and asks before the first request whether Describe It may use Athena. Friends'
+					requests are on your Anthropic bill;{' '}
+					{live.dailyLimit ? (
+						<>
+							each gets {live.dailyLimit} Describe {live.dailyLimit === 1 ? 'It' : 'Its'} a day. <a href="/settings#dailyLimit">Change the limit</a>
+						</>
+					) : (
+						<>
+							there's no daily limit. <a href="/settings#dailyLimit">Set one</a>
+						</>
+					)}
+				</p>
+			</div>
+		);
+	};
+
 	app.get('/settings', async (c) => {
 		const found = await who(c);
 		if ('page' in found) return found.page;
@@ -522,7 +628,8 @@ export function mountWeb(app: Hono, web: Web) {
 					<h1>{setup ? 'Set up Athena' : 'Settings'}</h1>
 					{setup && (
 						<p class="lede">
-							Choose your Plex server and add an Anthropic API key. Ithaca finds Athena by itself once it's ready.
+							Athena runs next to Plex and Seerr. Choose your Plex server and add an Anthropic API key; your
+							household's Ithaca finds Athena on port 8800 by itself once it's ready.
 						</p>
 					)}
 				</div>
@@ -535,7 +642,8 @@ export function mountWeb(app: Hono, web: Web) {
 					<fieldset>
 						<legend>Plex server</legend>
 						<p class="hint">
-							Only people with access to this server can use Athena, and only its owner can open Settings.
+							The server Athena runs next to. Only people with access to it can use Athena, and only its owner can
+							open Settings.
 						</p>
 						{effective.env.server ? (
 							<p class="locked">
@@ -618,9 +726,33 @@ export function mountWeb(app: Hono, web: Web) {
 					<fieldset>
 						<legend>Friends</legend>
 						<label class="field">
+							<span class="label">Public address</span>
+							<input
+								type="url"
+								id="publicURL"
+								name="publicURL"
+								value={effective.publicURL ?? ''}
+								placeholder="https://athena.example.com"
+								autocomplete="off"
+								autocapitalize="off"
+								spellcheck={false}
+							/>
+							<span class="hint">
+								Athena's HTTPS address as friends away from home reach it, like your Seerr. It needs a reverse proxy
+								with a certificate in front of port 8800. Without one, Athena is home-only.
+								{effective.publicURL && !setup && (
+									<>
+										{' '}
+										<a href="/share">Share it</a>
+									</>
+								)}
+							</span>
+						</label>
+						<label class="field">
 							<span class="label">Daily limit per person</span>
 							<input
 								type="number"
+								id="dailyLimit"
 								name="dailyLimit"
 								min="0"
 								max="1000"
@@ -629,7 +761,8 @@ export function mountWeb(app: Hono, web: Web) {
 								placeholder="No limit"
 							/>
 							<span class="hint">
-								Describe Its a day for each person except you. Past it, Ithaca tells them they've reached today's limit.
+								Describe Its a day for each person except you; empty for none. Past it, Ithaca tells them they've used
+								today's Describe Its on your Athena.
 							</span>
 						</label>
 					</fieldset>
@@ -693,7 +826,7 @@ export function mountWeb(app: Hono, web: Web) {
 		if (!sameSite(c)) return c.text('Forbidden', 403);
 		const found = await who(c);
 		if ('page' in found) return found.page;
-		const { role, servers } = found;
+		const { s, role, servers } = found;
 		if (role !== 'owner' && role !== 'setup') return c.redirect('/', 303);
 		const form = await c.req.parseBody();
 		const text = (key: string) => (typeof form[key] === 'string' ? (form[key] as string).trim() : '');
@@ -721,6 +854,14 @@ export function mountWeb(app: Hono, web: Web) {
 				303,
 			);
 		patch.dailyLimit = limit ? Number(limit) : null;
+		const address = text('publicURL');
+		patch.publicURL = address ? publicAddress(address) : null;
+		if (address && !patch.publicURL)
+			return c.redirect(
+				`/settings?problem=${encodeURIComponent('The public address is an https:// address, such as https://athena.example.com.')}`,
+				303,
+			);
+		patch.ownerName = s.name;
 
 		live.settings.save(patch);
 		live.refresh();

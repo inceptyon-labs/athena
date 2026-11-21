@@ -9,6 +9,7 @@ export class Live {
 	jevKey: string | null = null;
 	gate: PlexGate | null = null;
 	dailyLimit: number | null = null;
+	ownerName: string | null = null;
 	readonly plexTV: PlexTV;
 	private key: string | null = null;
 	private where: string | null = null;
@@ -35,6 +36,7 @@ export class Live {
 		this.model = now.model;
 		this.jevKey = now.typesafeKey;
 		this.dailyLimit = now.dailyLimit;
+		this.ownerName = now.ownerName;
 		const where = now.plexURL ? `url ${now.plexURL}` : now.server ? `id ${now.server.id}` : null;
 		if (where !== this.where) {
 			this.where = where;

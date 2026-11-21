@@ -24,6 +24,8 @@ export interface Deps {
 	gate?: Gate | null;
 	/** Describe Its a day for each person except the server's owner. */
 	dailyLimit?: number | null;
+	/** The owner's name, for the message past the daily limit. */
+	ownerName?: string | null;
 	/** Where requests are logged for the status page and the daily limit. */
 	usage?: Usage | null;
 	/** Replaced in tests. */
@@ -116,7 +118,8 @@ export function createApp(deps: Deps) {
 		if (limit && usage && !viewer.owner && usage.usedToday(viewer.id) >= limit && !usage.repeats(viewer.id, req.request)) {
 			entry(429, '', null, 0, 'over the daily limit');
 			const times = limit === 1 ? 'once' : `${limit} times`;
-			return c.json({ error: `You've used Describe It ${times} today, this Athena's daily limit. It resets at midnight.` }, 429);
+			const whose = deps.ownerName ? `${deps.ownerName}'s` : 'this';
+			return c.json({ error: `You've used Describe It ${times} today on ${whose} Athena. It resets at midnight.` }, 429);
 		}
 
 		const started = Date.now();

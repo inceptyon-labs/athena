@@ -8,7 +8,7 @@ web
 
 ## Users
 
-- **The Plex server owner**, who installs Athena next to Plex (Unraid or Docker Compose), sets it up once in a browser, often on a phone, and later glances at whether it is ready, how much it is used and what it costs.
+- **The Plex server owner**, who installs Athena next to Plex and Seerr (Unraid or Docker Compose), sets it up once in a browser, often on a phone, and later glances at whether it is ready, how much it is used and what it costs.
 - **People with access to that Plex server** (Plex Home profiles, friends the library is shared with), who use Athena through Ithaca's Describe It. They may sign in to the web UI too, where they see only their own use against the daily limit.
 
 ## Product Purpose
@@ -23,12 +23,13 @@ The optional, self-hosted companion to Ithaca for Plex. It runs on the owner's o
 
 - Installed from Unraid Community Apps or Docker Compose; the web UI shares port 8800 with the API Ithaca calls (`/healthz`, `/v1/pick`).
 - Sign-in is Plex's own PIN flow. Only the owner of the chosen Plex server may change settings.
-- Friends away from home reach it through an HTTPS reverse proxy the owner sets up.
+- The household's Ithaca finds it on port 8800 by itself. Friends away from home reach it through an HTTPS reverse proxy the owner sets up, the way they reach the owner's Seerr; without one it is home-only.
 
 ## Capabilities and Constraints
 
-- Settings: Plex server (from the owner's plex.tv servers), Anthropic key with a test, model, optional TypeSafe key for Jev, per-person daily limit. Environment variables win over saved settings.
-- Status: ready or not and why, requests today and this month, estimated spend from logged token counts, the last 50 requests.
+- Settings: Plex server (from the owner's plex.tv servers), Anthropic key with a test, model, optional TypeSafe key for Jev, public address, per-person daily limit. Environment variables win over saved settings.
+- Status: ready or not and why, requests today and this month, estimated spend from logged token counts, today's count per person, the last 50 requests.
+- Share (owner only, once the public address is set): an `ithaca://athena?url=` link to copy, its QR code for an iPhone or iPad camera, and the address in large type for Apple TV.
 - Secrets are never shown in full or logged. Small and fast: server-rendered, minimal JavaScript, no frontend framework.
 - The API is Ithaca's contract and does not change shape.
 

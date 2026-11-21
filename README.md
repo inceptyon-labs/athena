@@ -10,14 +10,16 @@ Ithaca picks from your library. Ithaca can do that on the device by itself. With
 the request instead: it understands any phrasing, knows films your library doesn't have (so its To Request suggestions
 are better when Seerr is connected), and gives a one-line reason for each pick.
 
-Athena is a small server you run yourself, next to Plex. Your Anthropic API key stays on it, so the apps need none.
-It reads no library: Ithaca sends the titles that fit the screen's filters with each request. Only people with access
-to your Plex server can use it.
+Athena is a small server you run yourself, next to Plex and Seerr. Your household's Ithaca finds it on your home
+network by itself; friends who use your Plex from outside reach it the way they reach your Seerr, at an HTTPS address.
+Your Anthropic API key stays on it, so the apps need none. It reads no library: Ithaca sends the titles that fit the
+screen's filters with each request. Only people with access to your Plex server can use it.
 
 ## Install
 
-You need a machine on your home network (the one Plex runs on is best), Docker, and an Anthropic API key. Make the
-key in its own [Claude Console](https://console.anthropic.com) workspace with a monthly spend limit.
+Run Athena next to Plex and Seerr: on the machine Plex runs on, or another on the same home network. It works only with
+a Plex server you own. You need Docker and an Anthropic API key; make the key in its own
+[Claude Console](https://console.anthropic.com) workspace with a monthly spend limit.
 
 ### Unraid
 
@@ -52,14 +54,15 @@ To build from source instead, clone this repository, `cp .env.example .env`, set
    approve the sign-in, then sends you back.
 2. Choose your Plex server. Only people with access to it can use Athena, and only its owner can open Settings.
 3. Paste your Anthropic API key and press **Test key**. Haiku 5.5 is the default model and the cheapest.
-4. Optionally add a TypeSafe key (below) and a daily limit for friends. Save.
+4. Optionally add a TypeSafe key (below), a public address for friends away from home (below) and a daily limit per
+   person. Save.
 
 The status page then says whether Athena is ready and why not, how many Describe Its it answered today and this month,
-an estimate of what that cost, and the last 50 requests: who asked, what they typed, the answer, the model and how
-long it took.
+an estimate of what that cost, how many each person used today, and the last 50 requests: who asked, what they typed,
+the answer, the model and how long it took.
 
-In Ithaca, Athena turns up by itself when it runs on the Plex machine with port 8800: Ithaca asks port 8800 on the
-home-network address of each Plex server it reaches. Running elsewhere, enter its address in Ithaca under
+At home, Athena turns up in Ithaca by itself when it runs on the Plex machine with port 8800: Ithaca asks port 8800 on
+the home-network address of each Plex server it reaches. Running elsewhere, enter its address in Ithaca under
 Settings → Athena. Before the first request, Ithaca asks the viewer whether Describe It may use Athena, since what
 they type goes on to Anthropic.
 
@@ -72,20 +75,23 @@ browser shows those settings locked.
 
 Only people who can use your Plex server: you, your Plex Home profiles, and friends you share the library with. Ithaca
 sends the viewer's Plex sign-in token with each request, and Athena asks plex.tv whether that account can reach your
-server. Stop sharing with someone in Plex and they lose Athena too. Answers are kept for ten minutes, by a hash of the
-token. Until a Plex server is chosen, Athena answers no one.
+server and which account it is (its id and name), so the status page lists people by name. Stop sharing with someone
+in Plex and they lose Athena too. Answers are kept for ten minutes, by a hash of the token; tokens are never stored or
+logged. Until a Plex server is chosen, Athena answers no one.
 
 Anyone with access can sign in to the web page too; people other than the owner see only how many Describe Its they
-used today. The daily limit applies to everyone but you. Past it, Ithaca shows them "You've used Describe It 20 times
-today, this Athena's daily limit. It resets at midnight."
+used today. The daily limit is per person, off until you set one, and never applies to you. Only Describe Its that
+Claude or Jev answered count, and Ithaca's picks and suggestions for the same request count once. Past it, Ithaca shows
+them "You've used Describe It 20 times today on Jason's Athena. It resets at midnight.", with your name as Plex shows
+it.
 
 The first person to sign in to a new Athena chooses its Plex server from the servers they own, so set it up right
 after installing. To start over, stop Athena and delete `settings.json` from the data folder.
 
 ## Friends away from home
 
-Friends who use your Plex from outside your home need Athena at an HTTPS address they can reach: a reverse proxy with
-a certificate in front of port 8800, such as Caddy:
+Without a public address, Athena is home-only. Friends who use your Plex from outside your home reach it the way they
+reach your Seerr: at an HTTPS address, through a reverse proxy with a certificate in front of port 8800, such as Caddy:
 
 ```
 athena.example.com {
@@ -93,8 +99,14 @@ athena.example.com {
 }
 ```
 
-They enter `https://athena.example.com` once in Ithaca under Settings → Athena. The web page works there too. Their
-requests are on your Anthropic bill; set a daily limit if that worries you.
+Enter that address under Settings → Public address, then open **Share**. It shows:
+
+- a link, `ithaca://athena?url=https%3A%2F%2Fathena.example.com`, to send in a message;
+- a QR code of that link: scanned with an iPhone or iPad camera, it opens Ithaca with the address filled in;
+- the address in large type, for Apple TV, where they type it in Ithaca under Settings → Athena.
+
+Ithaca saves the address and asks its usual question before the first request. The web page works at that address too.
+Friends' requests are on your Anthropic bill; set a daily limit if that worries you.
 
 ## Cost
 
