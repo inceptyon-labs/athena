@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isProvider, type KeyName, keyName, modelOf, PROVIDERS, type ProviderId, providerOf } from './providers';
 
 /** What the owner sets in the browser, kept in the data volume. */
-export interface Stored {
+export type Stored = {
 	/** The Plex server whose people may use Athena, by its machine identifier. */
 	server?: { id: string; name: string } | null;
-	anthropicKey?: string | null;
+	/** Who reads Describe It. Anthropic until the owner picks another. */
+	provider?: ProviderId | null;
+	/** The chosen provider's model; for a local server, its own name for it. */
 	model?: string | null;
+	/** A local server's OpenAI-style API, such as http://192.168.1.10:11434/v1. */
+	localURL?: string | null;
 	typesafeKey?: string | null;
 	/** Describe Its a day for each person except the owner. Null or 0 for no limit. */
 	dailyLimit?: number | null;
@@ -17,26 +22,37 @@ export interface Stored {
 	ownerName?: string | null;
 	/** Athena's own id with plex.tv, made once. */
 	clientId?: string;
-}
+} & Partial<Record<KeyName, string | null>>;
 
 /** The settings Athena runs with: an environment variable wins over what was saved. */
-export interface Effective {
+export type Effective = {
 	plexURL: string | null;
 	server: { id: string; name: string } | null;
-	anthropicKey: string | null;
+	provider: ProviderId;
+	/** Empty for a local server not given a model yet. */
 	model: string;
+	localURL: string | null;
 	typesafeKey: string | null;
 	dailyLimit: number | null;
 	publicURL: string | null;
 	ownerName: string | null;
 	clientId: string;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
-	env: Partial<Record<'server' | 'anthropicKey' | 'model' | 'typesafeKey', string>>;
-}
+	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | KeyName, string>>;
+} & Record<KeyName, string | null>;
 
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
 
 const blank = (value: string | undefined) => (value?.trim() ? value.trim() : null);
+
+/** The provider ATHENA_PROVIDER names, else the one whose list has ATHENA_MODEL (Anthropic for a model it doesn't know). */
+function envProvider(env: Record<string, string | undefined>): { id: ProviderId; from: string } | null {
+	const named = blank(env.ATHENA_PROVIDER);
+	if (named && isProvider(named)) return { id: named, from: 'ATHENA_PROVIDER' };
+	const model = blank(env.ATHENA_MODEL);
+	if (model) return { id: modelOf(model)?.provider.id ?? 'anthropic', from: 'ATHENA_MODEL' };
+	return null;
+}
 
 export class Settings {
 	private stored: Stored;
@@ -53,25 +69,42 @@ export class Settings {
 
 	effective(): Effective {
 		const env = this.env;
+		const stored = this.stored;
 		const plexURL = blank(env.PLEX_URL)?.replace(/\/+$/, '') ?? null;
-		const anthropicKey = blank(env.ANTHROPIC_API_KEY);
-		const model = blank(env.ATHENA_MODEL);
+		const fromEnv = envProvider(env);
+		const provider = fromEnv?.id ?? (stored.provider && isProvider(stored.provider) ? stored.provider : 'anthropic');
+		const envModel = blank(env.ATHENA_MODEL);
+		const models = providerOf(provider).models;
+		const saved = (stored.provider ?? 'anthropic') === provider ? stored.model : null;
+		const fits = saved && (provider === 'local' || models.some((model) => model.id === saved));
 		const typesafeKey = blank(env.TYPESAFE_API_KEY);
-		const limit = this.stored.dailyLimit;
+		const limit = stored.dailyLimit;
+		const keys = {} as Record<KeyName, string | null>;
+		const keyEnv: Effective['env'] = {};
+		for (const each of PROVIDERS) {
+			if (each.id === 'local') continue;
+			const name = keyName(each.id);
+			const fromEnvKey = each.keyEnv ? blank(env[each.keyEnv]) : null;
+			keys[name] = fromEnvKey ?? stored[name] ?? null;
+			if (fromEnvKey && each.keyEnv) keyEnv[name] = each.keyEnv;
+		}
 		return {
 			plexURL,
-			server: plexURL ? null : (this.stored.server ?? null),
-			anthropicKey: anthropicKey ?? this.stored.anthropicKey ?? null,
-			model: model ?? this.stored.model ?? DEFAULT_MODEL,
-			typesafeKey: typesafeKey ?? this.stored.typesafeKey ?? null,
+			server: plexURL ? null : (stored.server ?? null),
+			provider,
+			model: envModel ?? (fits ? saved : (models[0]?.id ?? '')),
+			localURL: stored.localURL ?? null,
+			...keys,
+			typesafeKey: typesafeKey ?? stored.typesafeKey ?? null,
 			dailyLimit: limit && limit > 0 ? limit : null,
-			publicURL: this.stored.publicURL ?? null,
-			ownerName: this.stored.ownerName ?? null,
-			clientId: this.stored.clientId ?? '',
+			publicURL: stored.publicURL ?? null,
+			ownerName: stored.ownerName ?? null,
+			clientId: stored.clientId ?? '',
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),
-				...(anthropicKey ? { anthropicKey: 'ANTHROPIC_API_KEY' } : {}),
-				...(model ? { model: 'ATHENA_MODEL' } : {}),
+				...(fromEnv ? { provider: fromEnv.from } : {}),
+				...(envModel ? { model: 'ATHENA_MODEL' } : {}),
+				...keyEnv,
 				...(typesafeKey ? { typesafeKey: 'TYPESAFE_API_KEY' } : {}),
 			},
 		};

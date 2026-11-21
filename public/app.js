@@ -1,15 +1,21 @@
-// Two bits of script. Settings' Test key button, which asks Athena to check the key against the chosen model:
+// Two bits of script. Settings' Test button, which asks Athena to check the chosen provider's key, or the local
+// server, against the chosen model, and offers a local server's models in its Model field:
 const button = document.querySelector('[data-test-key]');
 if (button) {
 	const form = button.closest('form');
 	const output = form.querySelector('.test-result');
+	const value = (name) => {
+		const field = form.elements.namedItem(name);
+		return field && 'value' in field ? field.value : '';
+	};
 	button.hidden = false;
 	button.addEventListener('click', async () => {
+		const provider = form.querySelector('input[name="provider"]:checked')?.value ?? '';
 		const body = new FormData();
-		const key = form.elements.namedItem('anthropicKey');
-		const model = form.elements.namedItem('model');
-		if (key && 'value' in key) body.set('anthropicKey', key.value);
-		if (model && 'value' in model) body.set('model', model.value);
+		body.set('provider', provider);
+		body.set(`${provider}Key`, value(`${provider}Key`));
+		body.set('model', value(`model_${provider}`));
+		body.set('localURL', value('localURL'));
 		button.disabled = true;
 		button.textContent = 'Testing…';
 		output.className = 'test-result';
@@ -19,12 +25,21 @@ if (button) {
 			const answer = await response.json();
 			output.textContent = answer.message;
 			output.classList.add(answer.ok ? 'ok' : 'bad');
+			const list = document.getElementById('local-models');
+			if (list && answer.models) list.replaceChildren(...answer.models.map((name) => new Option(name)));
 		} catch {
 			output.textContent = "Couldn't reach Athena.";
 			output.classList.add('bad');
 		} finally {
 			button.disabled = false;
-			button.textContent = 'Test key';
+			button.textContent = 'Test';
+		}
+	});
+	// A result is about the provider it tested.
+	form.addEventListener('change', (event) => {
+		if (event.target.name === 'provider') {
+			output.className = 'test-result';
+			output.textContent = '';
 		}
 	});
 }

@@ -24,7 +24,7 @@ const gateFor = (fetcher: typeof fetch, server: { id: string } | { url: string }
 describe('Plex sign-in', () => {
 	test('an account that can reach the server gets picks; others get 401', async () => {
 		const plex = fakePlex();
-		const app = createApp({ client: {} as never, model: 'test', pick, gate: gateFor(plex.fetcher) });
+		const app = createApp({ ai: { by: 'test', pick }, provider: 'anthropic', model: 'test', gate: gateFor(plex.fetcher) });
 		expect((await ask(app, 'owner-token')).status).toBe(200);
 		expect((await ask(app, 'friend-token')).status).toBe(200);
 		expect((await ask(app, 'bad-token')).status).toBe(401);
@@ -68,17 +68,17 @@ describe('Plex sign-in', () => {
 
 	test('a Plex error is a 502, not a refusal', async () => {
 		const plex = fakePlex(500);
-		const app = createApp({ client: {} as never, model: 'test', pick, gate: gateFor(plex.fetcher) });
+		const app = createApp({ ai: { by: 'test', pick }, provider: 'anthropic', model: 'test', gate: gateFor(plex.fetcher) });
 		expect((await ask(app, 'other-token')).status).toBe(502);
 	});
 
 	test('the health check names the Plex server', async () => {
-		const app = createApp({ client: null, model: 'test', gate: gateFor(fakePlex().fetcher) });
+		const app = createApp({ ai: null, provider: 'anthropic', model: 'test', gate: gateFor(fakePlex().fetcher) });
 		expect((await (await app.request('/healthz')).json()).server).toBe('machine-1');
 	});
 
 	test('until a Plex server is chosen, Athena answers no one', async () => {
-		const app = createApp({ client: {} as never, model: 'test', pick });
+		const app = createApp({ ai: { by: 'test', pick }, provider: 'anthropic', model: 'test' });
 		const response = await ask(app, 'owner-token');
 		expect(response.status).toBe(503);
 		expect(((await response.json()) as { error: string }).error).toContain('set up');

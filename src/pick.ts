@@ -61,7 +61,7 @@ export const PickRequest = z
 	});
 export type PickRequest = z.infer<typeof PickRequest>;
 
-const PickResult = z.object({
+export const PickResult = z.object({
 	minimums: z.object({
 		critics: z.number().nullable(),
 		audience: z.number().nullable(),
@@ -255,6 +255,17 @@ export interface PickOutcome {
 		cache_read_input_tokens?: number | null;
 		cache_creation_input_tokens?: number | null;
 	};
+}
+
+/** The model that reads Describe It: Claude here, or another provider's through `src/compat.ts`. */
+export interface AI {
+	/** What the request log names as having answered: the model's id, or `local:<model>`. */
+	by: string;
+	pick(req: PickRequest): Promise<PickOutcome>;
+}
+
+export function claude(client: Anthropic, model: string): AI {
+	return { by: model, pick: (req) => pick(client, model, req) };
 }
 
 export async function pick(client: Anthropic, model: string, req: PickRequest): Promise<PickOutcome> {

@@ -97,6 +97,20 @@ export class Usage {
 		return row.n;
 	}
 
+	/**
+	 * The average prompt of the last 30 days' answers from an AI model, in tokens: about the library's size, which sets
+	 * what a Describe It costs. Null until there are a few.
+	 */
+	promptSize(): number | null {
+		const row = this.db
+			.query(
+				`SELECT AVG(input_tokens + cache_read + cache_write) AS size, COUNT(*) AS n FROM requests
+				WHERE status = 200 AND by != '' AND by != 'jev' AND at >= ?`,
+			)
+			.get(this.now() - 30 * 86_400_000) as { size: number | null; n: number };
+		return row.n >= 3 && row.size ? Math.round(row.size) : null;
+	}
+
 	/** Everyone who asked today with their Describe Its, most first, under the name they last had. */
 	todayByPerson(): { viewerId: string; viewer: string | null; count: number }[] {
 		// With MAX(rowid) the only min or max, SQLite takes the bare `viewer` from that latest row.

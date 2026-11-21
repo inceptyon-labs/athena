@@ -64,11 +64,11 @@ test('with a TypeSafe key, picks go to Jev and suggestions to Claude, which also
 	});
 	let jevFails = false;
 	const app = createApp({
-		client: {} as never,
+		ai: { by: 'test', pick: async () => outcome('claude') },
+		provider: 'anthropic',
 		model: 'test',
 		jevKey: 'key',
 		gate: anyone,
-		pick: async () => outcome('claude'),
 		pickWithJev: async () => {
 			if (jevFails) throw new Error('down');
 			return outcome('');

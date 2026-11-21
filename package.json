@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Answers Ithaca's Describe It with Claude, from the viewer's own Plex library.",
+  "description": "Answers Ithaca's Describe It with the AI model the owner chooses, from the viewer's own Plex library.",
   "scripts": {
     "start": "bun run src/main.ts",
     "test": "bun test",

@@ -116,15 +116,18 @@ describe('POST /v1/pick', () => {
 	test('answers with the picks, suggestions and minimums', async () => {
 		const minimums = { critics: 80, audience: null, imdb: null };
 		const app = createApp({
-			client: {} as never,
+			ai: {
+				by: 'test',
+				pick: async () => ({
+					picks: [{ id: '1', reason: 'Gags.' }],
+					suggestions: [],
+					minimums,
+					usage: { input_tokens: 1, output_tokens: 1 },
+				}),
+			},
+			provider: 'anthropic',
 			model: 'test',
 			gate: anyone,
-			pick: async () => ({
-				picks: [{ id: '1', reason: 'Gags.' }],
-				suggestions: [],
-				minimums,
-				usage: { input_tokens: 1, output_tokens: 1 } as never,
-			}),
 		});
 		const response = await post(app, body);
 		expect(response.status).toBe(200);
@@ -132,13 +135,21 @@ describe('POST /v1/pick', () => {
 	});
 
 	test('the health check says what it is', async () => {
-		const response = await createApp({ client: null, model: 'test' }).request('/healthz');
-		expect(await response.json()).toEqual({ ok: true, ready: false, model: 'test', jev: false, service: 'athena', server: null });
+		const response = await createApp({ ai: null, provider: 'gemini', model: 'test' }).request('/healthz');
+		expect(await response.json()).toEqual({
+			ok: true,
+			ready: false,
+			model: 'test',
+			provider: 'gemini',
+			jev: false,
+			service: 'athena',
+			server: null,
+		});
 	});
 
 	test('a bad body is a 400, a missing key a 503', async () => {
-		const app = createApp({ client: {} as never, model: 'test', gate: anyone });
+		const app = createApp({ ai: { by: 'test', pick: async () => ({}) as never }, provider: 'anthropic', model: 'test', gate: anyone });
 		expect((await post(app, '{"request":""}')).status).toBe(400);
-		expect((await post(createApp({ client: null, model: 'test', gate: anyone }), body)).status).toBe(503);
+		expect((await post(createApp({ ai: null, provider: 'anthropic', model: 'test', gate: anyone }), body)).status).toBe(503);
 	});
 });

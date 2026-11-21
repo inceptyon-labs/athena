@@ -1,7 +1,7 @@
 # Athena: agent notes
 
 Bun + TypeScript + Hono service that turns an Ithaca "Describe It" request into
-picks from the viewer's own library with Claude. What it does and its API are in
+picks from the viewer's own library with the AI model the owner chooses. What it does and its API are in
 [README.md](README.md); this file holds only what the README doesn't say.
 
 ## Invariants
@@ -18,11 +18,22 @@ picks from the viewer's own library with Claude. What it does and its API are in
 - **The library and recent-list blocks are the cached prefix.** `SYSTEM`,
   `libraryText` and `discoverText` must stay byte-stable for the same input:
   nothing per request (time, exclusions, filters, the request itself) goes in
-  them. Those go in `requestText`, after the breakpoints.
+  them. Those go in `requestText`, after the breakpoints. The other providers
+  (`src/compat.ts`) cache a repeated prompt start by themselves, so they get the
+  same text in the same order, with `JSON_SHAPE` after `SYSTEM`.
+- **One prompt, every provider.** Claude goes through Anthropic's SDK
+  (`pick` in `src/pick.ts`); OpenAI, Gemini, Grok, DeepSeek and local servers
+  through their OpenAI-style Chat Completions (`compat`). Both parse into
+  `PickResult` and clean with the same `clean*` functions. The model lists,
+  reasoning settings and output caps in `src/providers.ts` and the prices in
+  `src/prices.ts` come from each provider's docs as of November 2026; check the
+  docs again when changing them, since each provider names its parameters
+  differently and some reject the others'.
 - **Jev answers only library picks.** `answer` in `src/server.ts` sends a request
   with `suggest: 0` to Jev (`src/jev.ts`) when a TypeSafe key is set, and
-  everything else to Claude. Jev picks have an empty `reason`, which Ithaca shows
-  as none. A Jev failure falls back to Claude, so a viewer still gets picks.
+  everything else to the chosen AI model. Jev picks have an empty `reason`, which
+  Ithaca shows as none. A Jev failure falls back to the AI model, so a viewer
+  still gets picks.
 - **Jev's wording was tested on the real library.** The per-title question
   (`Movie: <line>` with the rules in `jevState`), the minimum questions and the
   0.4 fit cut-off each beat the alternatives tried on real requests. Re-test on

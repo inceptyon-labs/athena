@@ -14,8 +14,13 @@ services:
       TZ: ${TZ:-America/New_York}
       # All optional: set them in the browser instead. When set here, they win and the browser shows them locked.
       PLEX_URL: ${PLEX_URL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ATHENA_PROVIDER: ${ATHENA_PROVIDER:-}
       ATHENA_MODEL: ${ATHENA_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
     labels:
       net.unraid.docker.webui: "http://[IP]:[PORT:8800]/"

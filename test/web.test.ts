@@ -12,6 +12,24 @@ import { fakePlex } from './helpers';
 
 const KEY = 'sk-ant-api03-very-secret-key-wxyz';
 
+/** How a provider answers Settings' sample request. */
+const sampleAnswer = () =>
+	Response.json({
+		choices: [
+			{
+				finish_reason: 'stop',
+				message: {
+					content: JSON.stringify({
+						minimums: { critics: null, audience: null, imdb: null },
+						picks: [{ id: '1', reason: 'Gags.' }],
+						suggestions: [{ title: 'Top Secret!', year: 1984, discoverId: null, reason: 'Same team.' }],
+					}),
+				},
+			},
+		],
+		usage: { prompt_tokens: 900, completion_tokens: 60 },
+	});
+
 /** Athena with fake Plex, where the PIN `pin` is approved by whoever `approve` says. */
 function athena(saved: Parameters<Settings['save']>[0] = {}) {
 	const plex = fakePlex();
@@ -20,6 +38,15 @@ function athena(saved: Parameters<Settings['save']>[0] = {}) {
 		const path = new URL(String(url)).pathname;
 		if (path === '/api/v2/pins' && init?.method === 'POST') return Response.json({ id: 7, code: 'abc' });
 		if (path === '/api/v2/pins/7') return Response.json({ id: 7, authToken: approve });
+		const key = new Headers(init?.headers).get('Authorization');
+		if (String(url) === 'https://api.openai.com/v1/chat/completions') {
+			if (key !== 'Bearer sk-openai') return new Response('{"error":{"message":"Incorrect API key"}}', { status: 401 });
+			if (JSON.parse(String(init?.body)).model === 'gpt-6.2-astra')
+				return new Response('{"error":{"message":"The model `gpt-6.2-astra` does not exist."}}', { status: 404 });
+			return sampleAnswer();
+		}
+		if (String(url) === 'http://ollama:11434/v1/models') return Response.json({ data: [{ id: 'llama-test:latest' }] });
+		if (String(url) === 'http://ollama:11434/v1/chat/completions') return sampleAnswer();
 		return plex.fetcher(url, init);
 	}) as typeof fetch;
 	const settings = new Settings(mkdtempSync(join(tmpdir(), 'athena-')), {});
@@ -94,7 +121,7 @@ describe('who sees what', () => {
 		const { get, signIn } = athena(ready);
 		const cookie = await signIn('owner-token');
 		const status = await (await get('/', cookie)).text();
-		expect(status).toContain('Answering for Uranus with Haiku 5.5');
+		expect(status).toContain('Answering for Uranus with Claude Haiku 5.5');
 		const settings = await (await get('/settings', cookie)).text();
 		expect(settings).toContain('sk-ant-…wxyz');
 		expect(settings).not.toContain(KEY);
@@ -119,14 +146,18 @@ describe('who sees what', () => {
 	test('the owner saves settings, which apply without a restart', async () => {
 		const { live, post, signIn } = athena(ready);
 		const cookie = await signIn('owner-token');
-		const response = await post('/settings', { server: 'machine-1', model: 'claude-sonnet-5-5', typesafeKey: 'ts-key', dailyLimit: '' }, cookie);
+		const response = await post(
+			'/settings',
+			{ server: 'machine-1', provider: 'anthropic', model_anthropic: 'claude-sonnet-5-5', typesafeKey: 'ts-key', dailyLimit: '' },
+			cookie,
+		);
 		expect(response.status).toBe(303);
 		expect(live.model).toBe('claude-sonnet-5-5');
 		expect(live.jevKey).toBe('ts-key');
 		expect(live.dailyLimit).toBeNull();
 		expect(live.effective.anthropicKey).toBe(KEY);
 		await post('/settings', { server: 'machine-1', anthropicKeyRemove: '1' }, cookie);
-		expect(live.client).toBeNull();
+		expect(live.ai).toBeNull();
 	});
 
 	test('before any server is chosen, whoever signs in sets Athena up with a server they own', async () => {
@@ -192,5 +223,71 @@ describe('sharing with friends', () => {
 		expect(page).toContain('Today by person');
 		expect(page).toMatch(/<li class="full"><span class="person">friend<\/span><span class="count"><strong>2<\/strong> of 2/);
 		expect(page).toMatch(/Owner<span class="you">you, no limit<\/span><\/span><span class="count"><strong>1<\/strong><\/span>/);
+	});
+});
+
+describe('choosing the AI model', () => {
+	const ready = { server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY };
+
+	test('settings offer every provider, each tier with its price and about what a Describe It costs', async () => {
+		const { usage, get, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const page = await (await get('/settings', cookie)).text();
+		for (const name of ['Anthropic', 'OpenAI', 'Google', 'xAI', 'DeepSeek', 'Local model']) expect(page).toContain(name);
+		expect(page).toMatch(/GPT-6.2 Sol<\/span><small>\$2 in, \$10 out per million tokens<\/small><\/span><span class="tier-cost"><strong>12¢<\/strong>/);
+		expect(page).toMatch(/Claude Haiku 5.5<\/span><small>\$0.10 in, \$0.50 out per million tokens<\/small><\/span><span class="tier-cost"><strong>0.6¢/);
+		expect(page).toContain('about 29K tokens for 600 titles');
+		const row = { viewerId: '1002', viewer: 'friend', kind: 'movie', request: 'funny', picks: 9, suggestions: 0, by: 'claude-haiku-5-5', ms: 1, status: 200, error: null, outputTokens: 400, cacheRead: 0, cacheWrite: 0, cost: 0 };
+		for (const request of ['a', 'b', 'c']) usage.record({ ...row, request, inputTokens: 100_000 });
+		const measured = await (await get('/settings', cookie)).text();
+		expect(measured).toContain('about 100K tokens going by your recent requests');
+	});
+
+	test("the owner switches to OpenAI's Balanced tier, which answers at once, and the Anthropic key stays", async () => {
+		const { app, live, get, post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		await post('/settings', { server: 'machine-1', provider: 'openai', openaiKey: 'sk-openai', model_openai: 'gpt-6.2-sol' }, cookie);
+		expect(live.ai?.by).toBe('gpt-6.2-sol');
+		expect(live.effective.anthropicKey).toBe(KEY);
+		expect(await (await get('/', cookie)).text()).toContain('Answering for Uranus with GPT-6.2 Sol');
+		expect(await (await app.request('/healthz')).json()).toMatchObject({ ready: true, provider: 'openai', model: 'gpt-6.2-sol' });
+	});
+
+	test('a local model needs its address and its name on that server', async () => {
+		const { live, post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const bad = await post('/settings', { server: 'machine-1', provider: 'local', localURL: 'nope', model_local: 'llama-test' }, cookie);
+		expect(bad.headers.get('Location')).toContain('problem=');
+		await post('/settings', { server: 'machine-1', provider: 'local', localURL: 'http://ollama:11434', model_local: '' }, cookie);
+		expect(live.ai).toBeNull();
+		await post('/settings', { server: 'machine-1', provider: 'local', localURL: 'http://ollama:11434', model_local: 'llama-test' }, cookie);
+		expect(live.ai?.by).toBe('local:llama-test');
+		expect(live.effective.localURL).toBe('http://ollama:11434/v1');
+	});
+
+	test("Test sends a sample Describe It through the chosen model, and lists a local server's models", async () => {
+		const { post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const test = async (fields: Record<string, string>) =>
+			(await (await post('/settings/test', fields, cookie)).json()) as { ok: boolean; message: string; models?: string[] };
+		const works = await test({ provider: 'openai', openaiKey: 'sk-openai', model: 'gpt-6.2-sol' });
+		expect(works.ok).toBe(true);
+		expect(works.message).toStartWith('Works. GPT-6.2 Sol picked Airplane! and suggested Top Secret! for "something funny and short"');
+		expect(await test({ provider: 'openai', openaiKey: 'sk-openai', model: 'gpt-6.2-astra' })).toEqual({
+			ok: false,
+			message: 'GPT returned an error (404): The model `gpt-6.2-astra` does not exist.',
+		});
+		expect(await test({ provider: 'openai', openaiKey: 'wrong', model: 'gpt-6-luna' })).toEqual({
+			ok: false,
+			message: "Athena's OpenAI API key was rejected.",
+		});
+		expect(await test({ provider: 'local', localURL: 'http://ollama:11434', model: 'nope' })).toEqual({
+			ok: false,
+			message: 'Reached it, but it has no nope. Its models: llama-test:latest.',
+			models: ['llama-test:latest'],
+		});
+		const local = await test({ provider: 'local', localURL: 'http://ollama:11434', model: 'llama-test' });
+		expect(local).toMatchObject({ ok: true, models: ['llama-test:latest'] });
+		expect(local.message).toContain('llama-test (local) picked Airplane!');
 	});
 });

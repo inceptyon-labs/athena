@@ -1,10 +1,10 @@
-import type Anthropic from '@anthropic-ai/sdk';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { pickWithJev } from './jev';
 import { log, warn } from './log';
-import { PickError, PickRequest, pick, type PickOutcome } from './pick';
+import { type AI, PickError, PickRequest, type PickOutcome } from './pick';
 import type { Viewer } from './plex';
+import type { ProviderId } from './providers';
 import { cost } from './prices';
 import type { Usage } from './usage';
 
@@ -16,7 +16,10 @@ export interface Gate {
 
 /** Read on every request, so settings saved in the browser apply at once. */
 export interface Deps {
-	client: Anthropic | null;
+	/** The model that answers suggestions, and library picks without Jev. Null until it is set up. */
+	ai: AI | null;
+	/** What the owner chose, for the health check, even before it is set up. */
+	provider: ProviderId;
 	model: string;
 	/** TypeSafe's key. With it, library picks go to Jev and only suggestions to Claude. */
 	jevKey?: string | null;
@@ -29,7 +32,6 @@ export interface Deps {
 	/** Where requests are logged for the status page and the daily limit. */
 	usage?: Usage | null;
 	/** Replaced in tests. */
-	pick?: (client: Anthropic, model: string, req: PickRequest) => Promise<PickOutcome>;
 	pickWithJev?: (key: string, req: PickRequest) => Promise<PickOutcome>;
 }
 
@@ -37,32 +39,32 @@ const NO_USAGE: PickOutcome['usage'] = { input_tokens: 0, output_tokens: 0 };
 
 export function createApp(deps: Deps) {
 	const app = new Hono();
-	const runPick = deps.pick ?? pick;
 	const runJev = deps.pickWithJev ?? pickWithJev;
 
-	/** Jev for picks from the library; Claude for suggestions, and when Jev fails. */
+	/** Jev for picks from the library; the chosen model for suggestions, and when Jev fails. */
 	async function answer(req: PickRequest): Promise<{ outcome: PickOutcome; by: string }> {
-		const { client, model, jevKey } = deps;
+		const { ai, jevKey } = deps;
 		if (jevKey && req.suggest === 0) {
 			try {
 				return { outcome: await runJev(jevKey, req), by: 'jev' };
 			} catch (error) {
-				if (!client) throw error;
-				warn(`jev failed, asking Claude: ${error instanceof Error ? error.message : String(error)}`);
+				if (!ai) throw error;
+				warn(`jev failed, asking ${ai.by}: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
-		if (!client) throw new PickError('Athena has no Anthropic API key yet.', 503);
-		return { outcome: await runPick(client, model, req), by: model };
+		if (!ai) throw new PickError("Athena's AI model isn't set up yet.", 503);
+		return { outcome: await ai.pick(req), by: ai.by };
 	}
 
-	// `service` is how Ithaca recognises Athena when it looks for it on the Plex server's address, and `server` is the
-	// Plex server whose token Ithaca sends.
+	// `service` is how Ithaca recognises Athena when it looks for it on the Plex server's address, `server` is the Plex
+	// server whose token Ithaca sends, and `provider` is where what the viewer types goes.
 	app.get('/healthz', async (c) => {
 		const gate = deps.gate ?? null;
 		return c.json({
 			ok: true,
-			ready: gate !== null && (deps.client !== null || Boolean(deps.jevKey)),
+			ready: gate !== null && (deps.ai !== null || Boolean(deps.jevKey)),
 			model: deps.model,
+			provider: deps.provider,
 			jev: Boolean(deps.jevKey),
 			service: 'athena',
 			server: gate ? await gate.machineIdentifier() : null,
@@ -81,7 +83,7 @@ export function createApp(deps: Deps) {
 			return c.json({ error: "Athena couldn't reach Plex to check your sign-in. Try again in a minute." }, 502);
 		}
 		if (!viewer) return c.json({ error: 'Athena only answers people with access to its Plex server.' }, 401);
-		if (!deps.client && !deps.jevKey) return c.json({ error: 'Athena has no API key yet.' }, 503);
+		if (!deps.ai && !deps.jevKey) return c.json({ error: "Athena's AI model isn't set up yet." }, 503);
 		let body: unknown;
 		try {
 			body = await c.req.json();

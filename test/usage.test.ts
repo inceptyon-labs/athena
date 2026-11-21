@@ -76,6 +76,20 @@ describe('usage', () => {
 		]);
 	});
 
+	test("the prompt size for estimates is the last 30 days' AI answers, once there are a few", () => {
+		let now = at('2026-11-21T20:00:00');
+		const usage = new Usage(':memory:', () => now);
+		usage.record(entry({ inputTokens: 1000, cacheRead: 24_000 }));
+		usage.record(entry({ by: 'jev', inputTokens: 90_000 }));
+		usage.record(entry({ status: 502, by: '', inputTokens: 0 }));
+		expect(usage.promptSize()).toBeNull();
+		usage.record(entry({ request: 'two', inputTokens: 29_000, cacheRead: 0 }));
+		usage.record(entry({ request: 'three', inputTokens: 30_000, cacheRead: 0 }));
+		expect(usage.promptSize()).toBe(28_000);
+		now += 31 * 86_400_000;
+		expect(usage.promptSize()).toBeNull();
+	});
+
 	test('the recent list is newest first, up to the number asked', () => {
 		let now = at('2026-11-21T08:00:00');
 		const usage = new Usage(':memory:', () => now);
@@ -112,13 +126,13 @@ describe('daily limit', () => {
 	const setup = () => {
 		const usage = new Usage(':memory:');
 		const app = createApp({
-			client: {} as never,
+			ai: { by: 'claude-haiku-5-5', pick: async () => outcome },
+			provider: 'anthropic',
 			model: 'claude-haiku-5-5',
 			gate,
 			usage,
 			dailyLimit: 2,
 			ownerName: 'Jason',
-			pick: async () => outcome,
 		});
 		const ask = (token: string, request: string) =>
 			app.request('/v1/pick', {
@@ -153,15 +167,18 @@ describe('daily limit', () => {
 		const usage = new Usage(':memory:');
 		let fail = true;
 		const app = createApp({
-			client: {} as never,
+			ai: {
+				by: 'claude-haiku-5-5',
+				pick: async () => {
+					if (fail) throw new Error('Claude is busy. Try again.');
+					return outcome;
+				},
+			},
+			provider: 'anthropic',
 			model: 'claude-haiku-5-5',
 			gate,
 			usage,
 			dailyLimit: 1,
-			pick: async () => {
-				if (fail) throw new Error('Claude is busy. Try again.');
-				return outcome;
-			},
 		});
 		const ask = (body: string) =>
 			app.request('/v1/pick', {

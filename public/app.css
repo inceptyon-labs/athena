@@ -56,6 +56,11 @@
 	box-sizing: border-box;
 }
 
+/* Classes that set display would otherwise show what the page hides. */
+[hidden] {
+	display: none !important;
+}
+
 html {
 	-webkit-text-size-adjust: 100%;
 	scrollbar-color: var(--line-strong) transparent;
@@ -810,6 +815,102 @@ select:focus-visible {
 	}
 }
 
+.providers {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.providers .choice {
+	padding: 8px 12px;
+}
+
+.choice-text {
+	display: grid;
+	line-height: 1.25;
+}
+
+.choice-text small {
+	font-size: 0.8125rem;
+	font-weight: 450;
+	color: var(--ink-2);
+}
+
+/* A provider's tiers, each with its price */
+.tiers {
+	display: grid;
+	gap: 8px;
+}
+
+.tier {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 14px;
+	background: var(--surface);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	cursor: pointer;
+	transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.tier:hover {
+	border-color: var(--ink-2);
+}
+
+.tier:has(input:checked) {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 1px var(--accent);
+}
+
+.tier input {
+	width: 18px;
+	height: 18px;
+	margin: 0;
+}
+
+.tier-name,
+.tier-cost {
+	display: grid;
+	line-height: 1.3;
+}
+
+.tier-name strong {
+	font-weight: 650;
+}
+
+.tier-name small,
+.tier-cost small {
+	font-size: 0.8125rem;
+	color: var(--ink-2);
+}
+
+.tier-cost {
+	justify-items: end;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.tier-cost strong {
+	font-size: 1.0625rem;
+	font-weight: 650;
+}
+
+/* Only the chosen provider's key and model show; the others stay in the form, untouched. */
+.provider {
+	display: none;
+	gap: 16px;
+}
+
+.settings:has([name='provider'][value='anthropic']:checked) [data-provider='anthropic'],
+.settings:has([name='provider'][value='openai']:checked) [data-provider='openai'],
+.settings:has([name='provider'][value='gemini']:checked) [data-provider='gemini'],
+.settings:has([name='provider'][value='xai']:checked) [data-provider='xai'],
+.settings:has([name='provider'][value='deepseek']:checked) [data-provider='deepseek'],
+.settings:has([name='provider'][value='local']:checked) [data-provider='local'] {
+	display: grid;
+}
+
 .choice input {
 	width: 18px;
 	height: 18px;
@@ -866,6 +967,10 @@ select:focus-visible {
 /* Phones */
 
 @media (max-width: 720px) {
+	.providers {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
 	.share > .share-phone {
 		grid-template-columns: minmax(0, 1fr);
 		gap: 16px;

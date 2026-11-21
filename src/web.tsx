@@ -1,13 +1,26 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { raw } from 'hono/html';
 import type { Child, FC } from 'hono/jsx';
-import type { Live } from './live';
+import { listModels } from './compat';
+import { type Live, makeAI } from './live';
 import { warn } from './log';
+import { PickRequest } from './pick';
 import type { Server } from './plex';
-import { MODELS } from './prices';
-import { mask } from './settings';
+import { cost, listPrice, perDescribeIt, TYPICAL } from './prices';
+import {
+	isProvider,
+	type KeyName,
+	keyName,
+	localBase,
+	type Model,
+	modelName,
+	PROVIDERS,
+	type Provider,
+	type ProviderId,
+	providerOf,
+} from './providers';
+import { type Effective, mask } from './settings';
 import { publicAddress, qrSVG, shareLink } from './share';
 import type { Session, Sessions } from './sessions';
 import type { Entry, Usage } from './usage';
@@ -50,8 +63,24 @@ function sameSite(c: Context) {
 	}
 }
 
-const modelName = (id: string) =>
-	id === 'jev' ? 'Jev' : (MODELS.find((model) => model.id === id)?.name.replace('Claude ', '') ?? id);
+/** About what a Describe It costs, in cents while it's under a dollar. */
+function cents(dollars: number) {
+	if (dollars >= 1) return `$${dollars.toFixed(2)}`;
+	if (dollars < 0.0001) return '<0.01¢';
+	if (dollars < 0.001) return `${(dollars * 100).toFixed(2)}¢`;
+	return dollars < 0.01 ? `${(dollars * 100).toFixed(1)}¢` : `${Math.round(dollars * 100)}¢`;
+}
+
+/** A list price per million tokens. */
+const perMillion = (dollars: number) => (Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`);
+
+/** What a Describe It is assumed to send, for the estimates: the log's average once it has some. */
+interface Estimate {
+	prompts: { picks: number; suggestions: number };
+	/** The prompt size came from this Athena's own requests. */
+	measured: boolean;
+	jev: boolean;
+}
 
 function money(dollars: number) {
 	if (dollars === 0) return '$0';
@@ -220,7 +249,7 @@ export function mountWeb(app: Hono, web: Web) {
 			<section class="signin">
 				<img src="/icon.svg" alt="" width="88" height="88" class="signin-icon" />
 				<h1>Athena</h1>
-				<p class="lede">Describe It for Ithaca, answered by Claude from your own Plex library.</p>
+				<p class="lede">Describe It for Ithaca, answered by the AI model you choose, from your own Plex library.</p>
 				<form method="post" action="/signin">
 					<button type="submit" class="primary wide">
 						Sign in with Plex
@@ -337,18 +366,23 @@ export function mountWeb(app: Hono, web: Web) {
 				detail: `Plex at ${effective.plexURL ?? 'PLEX_URL'} isn't answering, so Athena can't tell who may use it.`,
 			} as const;
 		const name = serverName(servers, machine);
-		if (!live.client && !live.jevKey)
-			return { state: 'off', title: 'Not ready', detail: 'Add an Anthropic API key in Settings.' } as const;
-		if (!live.client)
+		const provider = providerOf(live.provider);
+		const needs =
+			provider.id === 'local'
+				? "add your local model's address and name in Settings."
+				: `add your ${provider.name} API key in Settings.`;
+		if (!live.ai && !live.jevKey)
+			return { state: 'off', title: 'Not ready', detail: `To answer, ${needs}` } as const;
+		if (!live.ai)
 			return {
 				state: 'partial',
 				title: 'Partly ready',
-				detail: `Library picks for ${name} come from Jev. Suggestions need an Anthropic API key.`,
+				detail: `Library picks for ${name} come from Jev. For suggestions, ${needs}`,
 			} as const;
 		return {
 			state: 'on',
 			title: 'Ready',
-			detail: `Answering for ${name} with ${modelName(live.model)}${live.jevKey ? '. Library picks by Jev' : ''}.`,
+			detail: `Answering for ${name} with ${modelName(live.ai.by)}${live.jevKey ? '. Library picks by Jev' : ''}.`,
 		} as const;
 	}
 
@@ -576,7 +610,7 @@ export function mountWeb(app: Hono, web: Web) {
 				</section>
 				<p class="hint share-after">
 					Ithaca saves the address and asks before the first request whether Describe It may use Athena. Friends'
-					requests are on your Anthropic bill;{' '}
+					requests are on your {providerOf(live.provider).id === 'local' ? 'own machine' : `${providerOf(live.provider).name} bill`};{' '}
 					{live.dailyLimit ? (
 						<>
 							each gets {live.dailyLimit} Describe {live.dailyLimit === 1 ? 'It' : 'Its'} a day. <a href="/settings#dailyLimit">Change the limit</a>
@@ -619,17 +653,20 @@ export function mountWeb(app: Hono, web: Web) {
 		const effective = live.effective;
 		const owned = servers.filter((server) => server.owned);
 		const chosen = effective.server?.id ?? machine;
-		const models = MODELS.some((model) => model.id === effective.model)
-			? MODELS
-			: [...MODELS, { id: effective.model, name: effective.model }];
+		const size = usage.promptSize();
+		const estimate: Estimate = {
+			prompts: size ? { picks: size, suggestions: size } : TYPICAL,
+			measured: size !== null,
+			jev: Boolean(effective.typesafeKey),
+		};
 		return (
 			<Layout title={setup ? 'Set up' : 'Settings'} signedIn={s} nav={setup ? undefined : 'settings'}>
 				<div class="page-head">
 					<h1>{setup ? 'Set up Athena' : 'Settings'}</h1>
 					{setup && (
 						<p class="lede">
-							Athena runs next to Plex and Seerr. Choose your Plex server and add an Anthropic API key; your
-							household's Ithaca finds Athena on port 8800 by itself once it's ready.
+							Athena runs next to Plex and Seerr. Choose your Plex server and an AI model; your household's Ithaca
+							finds Athena on port 8800 by itself once it's ready.
 						</p>
 					)}
 				</div>
@@ -673,41 +710,45 @@ export function mountWeb(app: Hono, web: Web) {
 					</fieldset>
 
 					<fieldset>
-						<legend>Claude</legend>
-						<KeyField
-							name="anthropicKey"
-							label="Anthropic API key"
-							current={effective.anthropicKey}
-							env={effective.env.anthropicKey}
-							hint="Make it in its own Claude Console workspace with a monthly spend limit. Your friends' requests are on it too."
-						/>
-						<label class="field">
-							<span class="label">Model</span>
-							{effective.env.model ? (
-								<span class="locked">
-									<strong>{modelName(effective.model)}</strong>
-									<span>Set by ATHENA_MODEL</span>
-								</span>
-							) : (
-								<select name="model">
-									{models.map((model) => (
-										<option value={model.id} selected={model.id === effective.model}>
-											{model.name}
-										</option>
-									))}
-								</select>
-							)}
-							<span class="hint">
-								Haiku costs about a quarter of a cent a request with a 600-title library. Sonnet costs about 20 times
-								that, Opus about 40.
-							</span>
-						</label>
+						<legend>AI model</legend>
+						<p class="hint">
+							It reads each Describe It and makes the picks and suggestions. What people type goes to the provider you
+							choose, on your key; a local model keeps it on your network.
+						</p>
+						{effective.env.provider && (
+							<p class="locked">
+								<strong>{providerOf(effective.provider).name}</strong>
+								<span>Set by {effective.env.provider}</span>
+							</p>
+						)}
+						<div class="choices providers" hidden={Boolean(effective.env.provider)}>
+							{PROVIDERS.map((provider) => (
+								<label class="choice">
+									<input type="radio" name="provider" value={provider.id} checked={provider.id === effective.provider} />
+									<span class="choice-text">
+										{provider.name}
+										{provider.id === 'local' ? (
+											<small>On your network</small>
+										) : (
+											provider.brand !== provider.name && <small>{provider.brand}</small>
+										)}
+									</span>
+								</label>
+							))}
+						</div>
+						{PROVIDERS.map((provider) => (
+							<ProviderPanel provider={provider} effective={effective} estimate={estimate} />
+						))}
 						<div class="test">
 							<button type="button" class="secondary" data-test-key hidden>
-								Test key
+								Test
 							</button>
 							<output class="test-result" aria-live="polite" />
 						</div>
+						<p class="hint">
+							Test sends a small sample Describe It through the chosen model with the key above, the way Ithaca's
+							requests go, before you save. It costs a fraction of a cent.
+						</p>
 					</fieldset>
 
 					<fieldset>
@@ -719,7 +760,7 @@ export function mountWeb(app: Hono, web: Web) {
 							label="TypeSafe API key"
 							current={effective.typesafeKey}
 							env={effective.env.typesafeKey}
-							hint="Library picks from Jev in a quarter of a second instead of about eight, without a reason under each. Suggestions stay with Claude."
+							hint="Library picks from Jev in a quarter of a second instead of about eight, without a reason under each. Suggestions stay with the AI model above."
 						/>
 					</fieldset>
 
@@ -782,7 +823,133 @@ export function mountWeb(app: Hono, web: Web) {
 		);
 	};
 
-	const KeyField: FC<{ name: string; label: string; current: string | null; env?: string; hint: string }> = ({
+	/** One provider's key and model, shown while that provider is chosen. */
+	const ProviderPanel: FC<{ provider: Provider; effective: Effective; estimate: Estimate }> = ({
+		provider,
+		effective,
+		estimate,
+	}) => {
+		const chosen = provider.id === effective.provider;
+		const locked = chosen && effective.env.model;
+		if (provider.id === 'local')
+			return (
+				<div class="provider" data-provider="local">
+					<label class="field">
+						<span class="label">Address</span>
+						<input
+							type="url"
+							name="localURL"
+							value={effective.localURL ?? ''}
+							placeholder="http://192.168.1.10:11434/v1"
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck={false}
+						/>
+						<span class="hint">
+							The OpenAI-style API of Ollama, LM Studio or another server on your network. Requests stay home and cost
+							nothing per request, but reading a whole library takes a capable model and a fast machine.
+						</span>
+					</label>
+					<label class="field">
+						<span class="label">Model</span>
+						{locked ? (
+							<span class="locked">
+								<strong>{effective.model}</strong>
+								<span>Set by ATHENA_MODEL</span>
+							</span>
+						) : (
+							<input
+								type="text"
+								name="model_local"
+								list="local-models"
+								value={chosen ? effective.model : ''}
+								placeholder="Its name on that server"
+								autocomplete="off"
+								autocapitalize="off"
+								spellcheck={false}
+							/>
+						)}
+						<datalist id="local-models" />
+						<span class="hint">Test lists the models that server has.</span>
+					</label>
+				</div>
+			);
+		const key = keyName(provider.id as Exclude<ProviderId, 'local'>);
+		const selected = chosen ? effective.model : provider.models[0]?.id;
+		const thousands = Math.round(estimate.prompts.suggestions / 1000);
+		return (
+			<div class="provider" data-provider={provider.id}>
+				<KeyField
+					name={key}
+					label={`${provider.name} API key`}
+					current={effective[key]}
+					env={effective.env[key]}
+					hint={
+						<>
+							Make one <a href={provider.keys}>at {provider.name}</a> with a monthly spend limit. Your friends'
+							requests are on it too.
+						</>
+					}
+				/>
+				<div class="field">
+					<span class="label">Model</span>
+					{locked ? (
+						<span class="locked">
+							<strong>{modelName(effective.model)}</strong>
+							<span>Set by ATHENA_MODEL</span>
+						</span>
+					) : (
+						<div class="tiers" role="radiogroup" aria-label={`${provider.name} model`}>
+							{provider.models.map((model) => (
+								<Tier model={model} name={`model_${provider.id}`} checked={model.id === selected} estimate={estimate} />
+							))}
+						</div>
+					)}
+					<span class="hint">
+						Fast answers quickest; Best reads requests most carefully. A Describe It is Ithaca's two requests, picks
+						and suggestions, each carrying the library: about {thousands}K tokens{' '}
+						{estimate.measured ? 'going by your recent requests' : 'for 600 titles, until Athena has seen yours'}.
+						{estimate.jev ? ' With Jev, the picks request goes to Jev, for almost nothing.' : ''} Asking again with the
+						same filters within a few minutes costs less, from caching.
+					</span>
+				</div>
+			</div>
+		);
+	};
+
+	/** One tier to choose, with its list price and about what a Describe It costs on it. */
+	const Tier: FC<{ model: Model; name: string; checked: boolean; estimate: Estimate }> = ({
+		model,
+		name,
+		checked,
+		estimate,
+	}) => {
+		const price = listPrice(model.id);
+		const each = perDescribeIt(model.id, estimate.prompts, estimate.jev);
+		return (
+			<label class="tier">
+				<input type="radio" name={name} value={model.id} checked={checked} />
+				<span class="tier-name">
+					<span>
+						<strong>{model.tier}</strong> {model.name}
+					</span>
+					<small>
+						{price
+							? `${perMillion(price.input)} in, ${perMillion(price.output)} out per million tokens`
+							: 'Price not known'}
+					</small>
+				</span>
+				{each !== null && (
+					<span class="tier-cost">
+						<strong>{cents(each)}</strong>
+						<small>a Describe It</small>
+					</span>
+				)}
+			</label>
+		);
+	};
+
+	const KeyField: FC<{ name: string; label: string; current: string | null; env?: string; hint: Child }> = ({
 		name,
 		label,
 		current,
@@ -838,15 +1005,28 @@ export function mountWeb(app: Hono, web: Web) {
 			if (!server) return c.redirect(`/settings?problem=${encodeURIComponent('Choose a Plex server you own.')}`, 303);
 			patch.server = { id: server.id, name: server.name };
 		}
-		for (const key of ['anthropicKey', 'typesafeKey'] as const) {
+		const chosen = text('provider');
+		if (!effective.env.provider && isProvider(chosen)) patch.provider = chosen;
+		const provider = providerOf(patch.provider ?? effective.provider);
+		const keys: (KeyName | 'typesafeKey')[] = [...PROVIDERS.flatMap((each) => (each.id === 'local' ? [] : [keyName(each.id)])), 'typesafeKey'];
+		for (const key of keys) {
 			if (effective.env[key]) continue;
 			if (text(`${key}Remove`)) patch[key] = null;
 			if (text(key)) patch[key] = text(key);
 		}
-		if (!effective.env.model && text('model')) {
-			const allowed = MODELS.some((model) => model.id === text('model')) || text('model') === effective.model;
-			if (allowed) patch.model = text('model');
+		if (!effective.env.model) {
+			// A local server's model is whatever it calls it; the others come from their list.
+			const model = text(`model_${provider.id}`);
+			if (provider.id === 'local') patch.model = model.slice(0, 200) || null;
+			else if (provider.models.some((candidate) => candidate.id === model)) patch.model = model;
 		}
+		const local = text('localURL');
+		patch.localURL = local ? localBase(local) : null;
+		if (local && !patch.localURL)
+			return c.redirect(
+				`/settings?problem=${encodeURIComponent("The local model's address is an http:// address, such as http://192.168.1.10:11434/v1.")}`,
+				303,
+			);
 		const limit = text('dailyLimit');
 		if (limit && !/^\d{1,4}$/.test(limit))
 			return c.redirect(
@@ -865,10 +1045,14 @@ export function mountWeb(app: Hono, web: Web) {
 
 		live.settings.save(patch);
 		live.refresh();
-		return c.redirect(role === 'setup' && live.gate && (live.client || live.jevKey) ? '/' : '/settings?saved', 303);
+		return c.redirect(role === 'setup' && live.gate && (live.ai || live.jevKey) ? '/' : '/settings?saved', 303);
 	});
 
-	/** Checks an Anthropic key against the chosen model without spending anything. */
+	/**
+	 * Settings' Test: a three-title sample Describe It through the chosen provider, key and model, by the same code
+	 * Ithaca's requests take, so a rejected key, a model the key can't use or a parameter the provider refuses shows up
+	 * here first. It costs a fraction of a cent and isn't logged. A local server's models come back for the Model field.
+	 */
 	app.post('/settings/test', async (c) => {
 		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
 		const found = await who(c);
@@ -876,22 +1060,70 @@ export function mountWeb(app: Hono, web: Web) {
 		if (found.role !== 'owner' && found.role !== 'setup')
 			return c.json({ ok: false, message: 'Only the owner can test keys.' }, 403);
 		const form = await c.req.parseBody();
-		const typed = typeof form.anthropicKey === 'string' ? form.anthropicKey.trim() : '';
+		const field = (key: string) => (typeof form[key] === 'string' ? (form[key] as string).trim() : '');
 		const effective = live.effective;
-		const key = (!effective.env.anthropicKey && typed) || effective.anthropicKey;
-		const model = (!effective.env.model && typeof form.model === 'string' && form.model) || effective.model;
-		if (!key) return c.json({ ok: false, message: 'Paste a key first.' });
+		const chosen = field('provider');
+		const provider = providerOf(!effective.env.provider && isProvider(chosen) ? chosen : effective.provider);
+		const model = effective.env.model
+			? effective.model
+			: field('model') || (provider.id === effective.provider ? effective.model : (provider.models[0]?.id ?? ''));
+		const trying: Effective = { ...effective, provider: provider.id, model };
+
+		let models: string[] | undefined;
+		if (provider.id === 'local') {
+			const base = (field('localURL') && localBase(field('localURL'))) || effective.localURL;
+			if (!base) return c.json({ ok: false, message: "Enter the local server's address first." });
+			try {
+				const listed = await listModels(base, null, live.fetcher);
+				if (listed === 'rejected') return c.json({ ok: false, message: 'That server refused Athena.' });
+				models = listed;
+			} catch {
+				return c.json({ ok: false, message: "Athena couldn't reach that address." });
+			}
+			const has = models.join(', ') || 'none';
+			if (!model) return c.json({ ok: true, message: `Reached it. Its models: ${has}. Choose one and test again.`, models });
+			if (!models.some((name) => name === model || name === `${model}:latest`))
+				return c.json({ ok: false, message: `Reached it, but it has no ${model}. Its models: ${has}.`, models });
+			trying.localURL = base;
+		} else {
+			const name = keyName(provider.id);
+			const key = (!effective.env[name] && field(name)) || effective[name];
+			if (!key) return c.json({ ok: false, message: 'Paste a key first.' });
+			trying[name] = key;
+		}
+
+		const ai = makeAI(trying, live.fetcher);
+		if (!ai) return c.json({ ok: false, message: 'Choose a model first.' });
+		const started = Date.now();
 		try {
-			await new Anthropic({ apiKey: key, maxRetries: 0, timeout: 10_000 }).models.retrieve(model);
-			return c.json({ ok: true, message: `Works. ${modelName(model)} is available to this key.` });
+			const outcome = await ai.pick(SAMPLE);
+			const seconds = ((Date.now() - started) / 1000).toFixed(1);
+			const picked = SAMPLE.titles.find((title) => title.id === outcome.picks[0]?.id)?.title;
+			const suggested = outcome.suggestions[0]?.title;
+			const what = [picked && `picked ${picked}`, suggested && `suggested ${suggested}`].filter(Boolean).join(' and ');
+			const spent = cost(ai.by, outcome.usage);
+			return c.json({
+				ok: true,
+				message:
+					`Works. ${modelName(ai.by)} ${what || 'answered'} for "${SAMPLE.request}" in ${seconds} s` +
+					(spent ? `, for ${cents(spent)}.` : '.'),
+				models,
+			});
 		} catch (error) {
-			if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError)
-				return c.json({ ok: false, message: 'Anthropic rejected this key.' });
-			if (error instanceof Anthropic.NotFoundError)
-				return c.json({ ok: false, message: `The key works, but it can't use ${modelName(model)}.` });
-			if (error instanceof Anthropic.APIConnectionError)
-				return c.json({ ok: false, message: "Athena couldn't reach Anthropic. Check its internet connection." });
-			return c.json({ ok: false, message: error instanceof Error ? error.message : String(error) });
+			return c.json({ ok: false, message: error instanceof Error ? error.message : String(error), models });
 		}
 	});
 }
+
+/** Settings' Test request: small, so it costs next to nothing, with one clear fit. */
+const SAMPLE = PickRequest.parse({
+	request: 'something funny and short',
+	kind: 'movie',
+	count: 1,
+	titles: [
+		{ id: '1', title: 'Airplane!', year: 1980, genres: ['Comedy'], minutes: 88 },
+		{ id: '2', title: 'Heat', year: 1995, genres: ['Crime', 'Thriller'], minutes: 170 },
+		{ id: '3', title: "Schindler's List", year: 1993, genres: ['Drama', 'History'], minutes: 195 },
+	],
+	suggest: 1,
+});

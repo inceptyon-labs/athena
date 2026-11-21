@@ -16,7 +16,7 @@ const live = new Live(new Settings(data));
 const usage = new Usage(join(data, 'athena.db'));
 
 const effective = live.effective;
-if (!live.client) warn('no Anthropic API key yet: suggestions answer 503');
+if (!live.ai) warn(`no ${live.provider} model set up yet: suggestions answer 503`);
 if (!live.gate) warn(`no Plex server chosen yet: open http://<this machine>:${port}/ to set Athena up`);
 else void live.gate.machineIdentifier().then((id) => log(id ? `checking sign-ins against Plex ${id}` : `Plex at ${effective.plexURL} hasn't answered yet`));
 
@@ -24,4 +24,4 @@ const app = createApp(Object.assign(live, { usage }));
 mountWeb(app, { live, usage, sessions: new Sessions() });
 
 Bun.serve({ port, fetch: app.fetch, maxRequestBodySize: 4 * 1024 * 1024 });
-log(`athena listening on :${port} with ${live.model}${live.jevKey ? ', library picks by Jev' : ''}`);
+log(`athena listening on :${port} with ${live.provider} ${live.model || '(no model)'}${live.jevKey ? ', library picks by Jev' : ''}`);

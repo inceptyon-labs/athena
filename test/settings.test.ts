@@ -46,16 +46,30 @@ test('keys show only their ends', () => {
 	expect(mask(null)).toBeNull();
 });
 
-test('saving applies at once: a key makes a client, a server makes a gate', () => {
+test('saving applies at once: a key makes a model, a server makes a gate', () => {
 	const live = new Live(new Settings(dir(), {}));
-	expect(live.client).toBeNull();
+	expect(live.ai).toBeNull();
 	expect(live.gate).toBeNull();
 	live.settings.save({ anthropicKey: 'sk-ant-test', server: { id: 'machine-1', name: 'Uranus' }, typesafeKey: 'ts' });
 	live.refresh();
-	expect(live.client).not.toBeNull();
+	expect(live.ai?.by).toBe('claude-haiku-5-5');
 	expect(live.gate).not.toBeNull();
 	expect(live.jevKey).toBe('ts');
-	const client = live.client;
-	live.refresh();
-	expect(live.client).toBe(client);
+});
+
+test('the provider comes from ATHENA_PROVIDER, or the list ATHENA_MODEL is on, and each key from its own variable', () => {
+	const effective = new Settings(dir(), { ATHENA_MODEL: 'gemini-4-carbon', GEMINI_API_KEY: 'g-key' }).effective();
+	expect([effective.provider, effective.model, effective.env.provider]).toEqual(['gemini', 'gemini-4-carbon', 'ATHENA_MODEL']);
+	expect([effective.geminiKey, effective.env.geminiKey]).toEqual(['g-key', 'GEMINI_API_KEY']);
+	const local = new Settings(dir(), { ATHENA_PROVIDER: 'local' }).effective();
+	expect([local.provider, local.model]).toEqual(['local', '']);
+});
+
+test("a model saved for one provider isn't used for another, which starts at its Fast tier", () => {
+	const settings = new Settings(dir(), {});
+	expect(settings.effective()).toMatchObject({ provider: 'anthropic', model: DEFAULT_MODEL });
+	settings.save({ provider: 'openai', model: 'gpt-6.2-astra' });
+	expect(settings.effective().model).toBe('gpt-6.2-astra');
+	settings.save({ provider: 'xai' });
+	expect(settings.effective().model).toBe('grok-4.3');
 });
