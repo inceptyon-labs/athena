@@ -144,6 +144,7 @@ describe('POST /v1/pick', () => {
 			jev: false,
 			service: 'athena',
 			server: null,
+			serverTokens: false,
 		});
 	});
 

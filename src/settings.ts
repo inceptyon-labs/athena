@@ -27,6 +27,11 @@ export type Stored = {
 	ownerId?: string | null;
 	/** Athena's own id with plex.tv, made once. */
 	clientId?: string;
+	/**
+	 * The owner's Plex token, from their last sign-in to the web UI: Athena reads who the Plex server is shared with
+	 * through it, so a friend's Ithaca sends only its token for this server. Never shown or logged.
+	 */
+	ownerToken?: string | null;
 } & Partial<Record<KeyName, string | null>>;
 
 /** The settings Athena runs with: an environment variable wins over what was saved. */
@@ -42,6 +47,7 @@ export type Effective = {
 	publicURL: string | null;
 	ownerName: string | null;
 	ownerId: string | null;
+	ownerToken: string | null;
 	clientId: string;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
 	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | KeyName, string>>;
@@ -106,6 +112,7 @@ export class Settings {
 			publicURL: stored.publicURL ?? null,
 			ownerName: stored.ownerName ?? null,
 			ownerId: stored.ownerId ?? null,
+			ownerToken: stored.ownerToken ?? null,
 			clientId: stored.clientId ?? '',
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),

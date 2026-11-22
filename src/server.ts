@@ -12,6 +12,8 @@ import type { Usage } from './usage';
 export interface Gate {
 	machineIdentifier(): Promise<string | null>;
 	viewer(token: string): Promise<Viewer | null>;
+	/** Whether a viewer's token for the Plex server is enough, not only an account token. */
+	acceptsServerTokens?(): boolean;
 }
 
 /** Read on every request, so settings saved in the browser apply at once. */
@@ -57,7 +59,8 @@ export function createApp(deps: Deps) {
 	}
 
 	// `service` is how Ithaca recognises Athena when it looks for it on the Plex server's address, `server` is the Plex
-	// server whose token Ithaca sends, and `provider` is where what the viewer types goes.
+	// server whose token Ithaca sends, `serverTokens` says that token is enough for anyone it is shared with (without it,
+	// only the owner's works, being their account token), and `provider` is where what the viewer types goes.
 	app.get('/healthz', async (c) => {
 		const gate = deps.gate ?? null;
 		return c.json({
@@ -68,6 +71,7 @@ export function createApp(deps: Deps) {
 			jev: Boolean(deps.jevKey),
 			service: 'athena',
 			server: gate ? await gate.machineIdentifier() : null,
+			serverTokens: gate?.acceptsServerTokens?.() ?? false,
 		});
 	});
 

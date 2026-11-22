@@ -27,6 +27,7 @@ export class Live {
 	dailyLimit: number | null = null;
 	ownerName: string | null = null;
 	ownerId: string | null = null;
+	ownerToken: string | null = null;
 	readonly plexTV: PlexTV;
 	private where: string | null = null;
 
@@ -51,14 +52,16 @@ export class Live {
 		this.dailyLimit = now.dailyLimit;
 		this.ownerName = now.ownerName;
 		this.ownerId = now.ownerId;
+		this.ownerToken = now.ownerToken;
 		const where = now.plexURL ? `url ${now.plexURL}` : now.server ? `id ${now.server.id}` : null;
 		if (where !== this.where) {
 			this.where = where;
 			const owner = () => this.ownerId;
+			const ownerToken = () => this.ownerToken;
 			this.gate = now.plexURL
-				? new PlexGate({ url: now.plexURL }, this.plexTV, this.fetcher, Date.now, owner)
+				? new PlexGate({ url: now.plexURL }, this.plexTV, this.fetcher, Date.now, owner, ownerToken)
 				: now.server
-					? new PlexGate({ id: now.server.id }, this.plexTV, this.fetcher, Date.now, owner)
+					? new PlexGate({ id: now.server.id }, this.plexTV, this.fetcher, Date.now, owner, ownerToken)
 					: null;
 		}
 	}

@@ -100,10 +100,15 @@ locked.
 ## Who can use it
 
 Only people who can use your Plex server: you, your Plex Home profiles, and friends you share the library with. Ithaca
-sends the viewer's Plex sign-in token with each request, and Athena asks plex.tv whether that account can reach your
-server and which account it is (its id and name), so the status page lists people by name. Stop sharing with someone
-in Plex and they lose Athena too. Answers are kept for ten minutes, by a hash of the token; tokens are never stored or
-logged. Until a Plex server is chosen, Athena answers no one.
+sends the viewer's token for your server with each request, never their Plex account token, so running Athena gives you
+nothing of theirs beyond what sharing your server already does. Athena checks it against the list plex.tv keeps of who
+your server is shared with and their tokens for it, which it reads with your Plex token (kept in `data/settings.json`
+from your last sign-in to the web page, and never shown or logged), so the status page lists people by name. Your own
+token for your server is your account token, which Athena checks with plex.tv directly, as it does the account tokens
+older Ithaca versions send. After updating from a version that didn't keep your token, sign in to the web page once;
+until then only you can use Describe It from the newer Ithaca. Stop sharing with someone in Plex and they lose Athena
+too. Answers are kept for ten minutes, by a hash of the token; viewers' tokens are never stored or logged. Until a Plex
+server is chosen, Athena answers no one.
 
 Anyone with access can sign in to the web page too; people other than the owner see only how many Describe Its they
 used today. The daily limit is per person, off until you set one, and never applies to you. Only Describe Its that
@@ -185,13 +190,15 @@ Get a key at [console.typesafe.ai](https://console.typesafe.ai/) and paste it un
 
 The web page is at `/`; Ithaca uses the two routes below.
 
-`GET /healthz` returns `{ ok, ready, model, provider, jev, service: "athena", server }`. `ready` is false until a Plex
+`GET /healthz` returns `{ ok, ready, model, provider, jev, service: "athena", server, serverTokens }`. `ready` is false until a Plex
 server is chosen and an AI model or a TypeSafe key is set up, `provider` is where what the viewer types goes
 (`anthropic`, `openai`, `gemini`, `xai`, `deepseek` or `local`), `jev` says whether library picks go to Jev, `service`
-is how Ithaca recognises Athena on port 8800, and `server` is the machine identifier of the Plex server Athena checks
-sign-ins against (null without one).
+is how Ithaca recognises Athena on port 8800, `server` is the machine identifier of the Plex server Athena checks
+sign-ins against (null without one), and `serverTokens` says whether a viewer's token for that server is enough
+(false until the owner has signed in to the web page with this version).
 
-`POST /v1/pick`, with the viewer's Plex account token in `X-Plex-Token`:
+`POST /v1/pick`, with the viewer's token for that Plex server in `X-Plex-Token` (or, from older Ithaca versions, their
+Plex account token):
 
 ```json
 {

@@ -239,9 +239,10 @@ export function mountWeb(app: Hono, web: Web) {
 				deleteCookie(c, SESSION, { path: '/' });
 				return { page: c.html(<SignIn />) };
 			}
-			if (role.role === 'owner' && live.ownerId === null) {
-				// Set up before Athena kept the owner's account: it learns it on the owner's first visit.
-				live.settings.save({ ownerId: s.accountId });
+			if (role.role === 'owner' && (live.ownerId === null || live.ownerToken !== s.token)) {
+				// Set up before Athena kept the owner's account or token: it learns them on the owner's first visit, and
+				// the token again after each sign-in, since plex.tv makes a new one each time.
+				live.settings.save({ ownerId: s.accountId, ownerToken: s.token });
 				live.refresh();
 			}
 			return { s, ...role };
@@ -1063,6 +1064,7 @@ export function mountWeb(app: Hono, web: Web) {
 		if (address && !patch.publicURL) return c.redirect('/settings?problem=public', 303);
 		patch.ownerName = s.name;
 		patch.ownerId = s.accountId;
+		patch.ownerToken = s.token;
 
 		live.settings.save(patch);
 		live.refresh();

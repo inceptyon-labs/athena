@@ -72,15 +72,69 @@ describe('Plex sign-in', () => {
 		expect(await plexTV.account('bad-token')).toBeNull();
 	});
 
+	test("with the owner's token, a friend's or Home member's token for the server is enough, and the share list is read once a minute", async () => {
+		let now = 0;
+		const plex = fakePlex();
+		let ownerToken: string | null = 'owner-token';
+		const gate = new PlexGate(
+			{ id: 'machine-1' },
+			new PlexTV('athena-test', plex.fetcher),
+			plex.fetcher,
+			() => now,
+			() => '1001',
+			() => ownerToken,
+		);
+		expect(gate.acceptsServerTokens()).toBe(true);
+		expect(await gate.viewer('friend-share')).toEqual({ id: '1002', name: 'friend', owner: false });
+		expect(await gate.viewer('kid-share')).toEqual({ id: '1004', name: 'Kid & Co', owner: false });
+		// The owner's own device tokens are account tokens, checked as before; so is an older Ithaca's account token.
+		expect(await gate.viewer('owner-token')).toEqual({ id: '1001', name: 'Owner', owner: true });
+		expect(await gate.viewer('friend-token')).toEqual({ id: '1002', name: 'friend', owner: false });
+		expect(await gate.viewer('owner-device')).toBeNull();
+		expect(plex.shares()).toBe(1);
+		now += 61_000;
+		expect(await gate.viewer('someone-else')).toBeNull();
+		expect(plex.shares()).toBe(2);
+		ownerToken = null;
+		expect(gate.acceptsServerTokens()).toBe(false);
+	});
+
+	test("without the owner's token, or once plex.tv refuses it, a token for the server alone gets nowhere", async () => {
+		const plex = fakePlex();
+		const without = new PlexGate({ id: 'machine-1' }, new PlexTV('athena-test', plex.fetcher), plex.fetcher);
+		expect(without.acceptsServerTokens()).toBe(false);
+		expect(await without.viewer('friend-share')).toBeNull();
+		expect(plex.shares()).toBe(0);
+
+		const refused = new PlexGate(
+			{ id: 'machine-1' },
+			new PlexTV('athena-test', plex.fetcher),
+			plex.fetcher,
+			Date.now,
+			() => null,
+			() => 'revoked-owner-token',
+		);
+		expect(await refused.viewer('friend-share')).toBeNull();
+		expect(refused.acceptsServerTokens()).toBe(false);
+		expect(await refused.viewer('kid-share')).toBeNull();
+		expect(plex.shares()).toBe(1);
+	});
+
 	test('a Plex error is a 502, not a refusal', async () => {
 		const plex = fakePlex(500);
 		const app = createApp({ ai: { by: 'test', pick }, provider: 'anthropic', model: 'test', gate: gateFor(plex.fetcher) });
 		expect((await ask(app, 'other-token')).status).toBe(502);
 	});
 
-	test('the health check names the Plex server', async () => {
+	test("the health check names the Plex server, and says whether a token for it is enough", async () => {
 		const app = createApp({ ai: null, provider: 'anthropic', model: 'test', gate: gateFor(fakePlex().fetcher) });
-		expect((await (await app.request('/healthz')).json()).server).toBe('machine-1');
+		const health = await (await app.request('/healthz')).json();
+		expect(health.server).toBe('machine-1');
+		expect(health.serverTokens).toBe(false);
+		const plex = fakePlex();
+		const withOwner = new PlexGate({ id: 'machine-1' }, new PlexTV('athena-test', plex.fetcher), plex.fetcher, Date.now, () => null, () => 'owner-token');
+		const ready = createApp({ ai: null, provider: 'anthropic', model: 'test', gate: withOwner });
+		expect((await (await ready.request('/healthz')).json()).serverTokens).toBe(true);
 	});
 
 	test('until a Plex server is chosen, Athena answers no one', async () => {
