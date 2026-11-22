@@ -128,6 +128,15 @@ describe('who sees what', () => {
 		expect(settings).not.toContain(KEY);
 	});
 
+	test('a key set by the environment shows locked, with what it is for and where to get one', async () => {
+		const { get, signIn } = athena(ready, { TYPESAFE_API_KEY: 'ts-env-key-1234' });
+		const settings = await (await get('/settings', await signIn('owner-token'))).text();
+		expect(settings).toContain('Set by TYPESAFE_API_KEY');
+		expect(settings).toContain('Jev is TypeSafe&#39;s decision model.');
+		expect(settings).toContain('href="https://console.typesafe.ai/"');
+		expect(settings).not.toContain('ts-env-key-1234');
+	});
+
 	test('a friend sees their own use, and settings are closed to them', async () => {
 		const { live, get, post, signIn } = athena(ready);
 		const cookie = await signIn('friend-token');

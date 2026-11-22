@@ -769,7 +769,14 @@ export function mountWeb(app: Hono, web: Web) {
 							label="TypeSafe API key"
 							current={effective.typesafeKey}
 							env={effective.env.typesafeKey}
-							hint="Library picks from Jev in a quarter of a second instead of about eight, without a reason under each. Suggestions stay with the AI model above."
+							hint={
+								<>
+									Jev is TypeSafe's decision model. With a key, it makes the library picks: it answers yes or no for
+									each title, in about a quarter of a second instead of about eight, for a thousandth of a cent, but
+									writes no reason under them. Suggestions to request stay with the AI model above. Without a key, the
+									AI model does both. Get a key at <a href="https://console.typesafe.ai/">console.typesafe.ai</a>.
+								</>
+							}
 						/>
 					</fieldset>
 
@@ -972,6 +979,7 @@ export function mountWeb(app: Hono, web: Web) {
 					<code>{mask(current)}</code>
 					<span>Set by {env}</span>
 				</span>
+				<span class="hint">{hint}</span>
 			</div>
 		) : (
 			<div class="field">

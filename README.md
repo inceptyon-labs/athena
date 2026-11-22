@@ -61,12 +61,12 @@ To build from source instead, clone this repository, `cp .env.example .env`, set
 3. Choose an AI model: the provider, its API key and a tier (Fast, Balanced or Best). Each tier shows its price and
    about what a Describe It costs on it (below); Fast is the default and the cheapest. Press **Test** to send a small
    sample request through it, the way Ithaca's requests go, before you save.
-4. Optionally add a TypeSafe key (below), a public address for friends away from home (below) and a daily limit per
-   person. Save.
+4. Optionally add a TypeSafe key for Jev (below), a public address for friends away from home (below) and a daily
+   limit per person. Save.
 
 The status page then says whether Athena is ready and why not, how many Describe Its it answered today and this month,
-an estimate of what that cost, how many each person used today and this month with what theirs cost, and the last 50 requests: who asked, what they typed,
-the answer, the model and how long it took.
+an estimate of what that cost, how many each person used today and this month with what theirs cost, and the last 50
+requests: who asked, what they typed, the answer, the model and how long it took.
 
 At home, Athena turns up in Ithaca by itself when it runs on the Plex machine with port 8800: Ithaca asks port 8800 on
 the home-network address of each Plex server it reaches. Running elsewhere, enter its address in Ithaca under
@@ -74,11 +74,28 @@ Settings → Athena. Before the first request, Ithaca asks the viewer whether De
 they type goes on to the provider you chose (unless it's a local model).
 
 Settings are kept in the data folder, `settings.json`, readable only by Athena; API keys are never shown back in full
-or logged. The request log is `athena.db` in the same folder and keeps a little over a year. Environment variables
-`PLEX_URL`, `ATHENA_PROVIDER` (`anthropic`, `openai`, `gemini`, `xai`, `deepseek` or `local`), `ATHENA_MODEL`,
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY` and `TYPESAFE_API_KEY` win
-over what's saved when they're set, and the browser shows those settings locked. `ATHENA_MODEL` alone also sets the
-provider whose list has that model.
+or logged. The request log is `athena.db` in the same folder and keeps a little over a year.
+
+## Environment variables
+
+All optional. The ones that set something in Settings win over what's saved there, and Settings shows that field
+locked.
+
+| Variable | What it sets |
+| --- | --- |
+| `PLEX_URL` | The Plex server, by its address (`http://192.168.1.10:32400`), in place of choosing it in Settings |
+| `ATHENA_PROVIDER` | The AI provider: `anthropic`, `openai`, `gemini`, `xai`, `deepseek` or `local` |
+| `ATHENA_MODEL` | The model's id, such as `claude-haiku-5-5`. Without `ATHENA_PROVIDER`, it also sets the provider whose list has that model |
+| `ANTHROPIC_API_KEY` | Anthropic's API key, for Claude |
+| `OPENAI_API_KEY` | OpenAI's API key, for GPT |
+| `GEMINI_API_KEY` | Google's API key, for Gemini |
+| `XAI_API_KEY` | xAI's API key, for Grok |
+| `DEEPSEEK_API_KEY` | DeepSeek's API key |
+| `TYPESAFE_API_KEY` | The TypeSafe key for Jev, which makes the library picks ([How it picks](#how-it-picks)) |
+| `TZ` | The time zone that "today" and "this month" follow on the status page. `America/New_York` by default |
+| `PUID`, `PGID` | The user and group Athena runs as, and gives the data folder to. 99 and 100 (Unraid's nobody:users) by default |
+| `ATHENA_BIND` | Building from source only, in `.env`: this machine's home-network address, which Compose publishes Athena on |
+| `ATHENA_PORT` | Building from source only, in `.env`: the port Compose publishes. Keep 8800, the default, so Ithaca finds Athena by itself |
 
 ## Who can use it
 
@@ -90,9 +107,9 @@ logged. Until a Plex server is chosen, Athena answers no one.
 
 Anyone with access can sign in to the web page too; people other than the owner see only how many Describe Its they
 used today. The daily limit is per person, off until you set one, and never applies to you. Only Describe Its that
-the AI model or Jev answered count, and Ithaca's picks and suggestions for the same request count once. Past it, Ithaca shows
-them "You've used Describe It 20 times today on Jason's Athena. It resets at midnight.", with your name as Plex shows
-it.
+the AI model or Jev answered count, and Ithaca's picks and suggestions for the same request count once. Past it,
+Ithaca shows them "You've used Describe It 20 times today on Jason's Athena. It resets at midnight.", with your name
+as Plex shows it.
 
 The first person to sign in to a new Athena chooses its Plex server from the servers they own, so set it up right
 after installing. To start over, stop Athena and delete `settings.json` from the data folder.
@@ -142,8 +159,8 @@ think little, since a viewer is waiting.
 
 A local model costs nothing per request and keeps what people type at home. Point Athena at its OpenAI-style API
 (Ollama's is `http://<machine>:11434/v1`, LM Studio's `http://<machine>:1234/v1`) and name the model; **Test** lists
-the ones the server has, then tries the one you named. Reading a whole library in one go takes a capable model and a fast machine, so expect slower
-answers than from the cloud.
+the ones the server has, then tries the one you named. Reading a whole library in one go takes a capable model and a
+fast machine, so expect slower answers than from the cloud.
 
 Jev reads the same 600 titles as about 28K input tokens, at $0.042 per million with output free: about a thousandth of
 a cent per request.
@@ -153,21 +170,24 @@ real bill.
 
 ## How it picks
 
-With a TypeSafe key, library picks go to Jev, a decision model that answers one yes-or-no question per title ("does
-this fit the request?") for the whole library at once, in about a quarter of a second instead of about eight. Jev
-writes no text, so these picks come without a reason, and it leaves out the viewer's taste. Suggestions go to the AI
-model, which names titles from what it knows and writes a reason for each; Jev can only choose from a list. Without a
-TypeSafe key, or when Jev fails, the AI model makes the library picks too.
+With a TypeSafe key, library picks go to Jev, TypeSafe's decision model. It answers one yes-or-no question per title
+("does this fit the request?") for the whole library at once, in about a quarter of a second instead of about eight.
+Jev writes no text, so these picks come without a reason, and it leaves out the viewer's taste. Suggestions go to the
+AI model, which names titles from what it knows and writes a reason for each; Jev can only choose from a list. Without
+a TypeSafe key, or when Jev fails, the AI model makes the library picks too.
+
+Get a key at [console.typesafe.ai](https://console.typesafe.ai/) and paste it under Settings → Jev, or set
+`TYPESAFE_API_KEY`. Jev costs about a thousandth of a cent per request ([Models and cost](#models-and-cost)).
 
 ## API
 
 The web page is at `/`; Ithaca uses the two routes below.
 
 `GET /healthz` returns `{ ok, ready, model, provider, jev, service: "athena", server }`. `ready` is false until a Plex
-server is chosen and an AI model or a TypeSafe key is set up, `provider` is where what the viewer types goes (`anthropic`, `openai`,
-`gemini`, `xai`, `deepseek` or `local`), `jev` says whether library picks go to Jev, `service` is how Ithaca recognises
-Athena on port 8800, and `server` is the machine identifier of the Plex server Athena checks sign-ins against (null
-without one).
+server is chosen and an AI model or a TypeSafe key is set up, `provider` is where what the viewer types goes
+(`anthropic`, `openai`, `gemini`, `xai`, `deepseek` or `local`), `jev` says whether library picks go to Jev, `service`
+is how Ithaca recognises Athena on port 8800, and `server` is the machine identifier of the Plex server Athena checks
+sign-ins against (null without one).
 
 `POST /v1/pick`, with the viewer's Plex account token in `X-Plex-Token`:
 
