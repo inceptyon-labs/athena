@@ -20,6 +20,11 @@ export type Stored = {
 	publicURL?: string | null;
 	/** The owner's name as Plex shows it, for the daily limit's message. Saved whenever the owner saves settings. */
 	ownerName?: string | null;
+	/**
+	 * The plex.tv account id of the owner who set Athena up: the only account treated as the owner, whatever else plex.tv
+	 * lists as owning the server. Learned at setup, or on the owner's first visit when Athena was set up before it.
+	 */
+	ownerId?: string | null;
 	/** Athena's own id with plex.tv, made once. */
 	clientId?: string;
 } & Partial<Record<KeyName, string | null>>;
@@ -36,6 +41,7 @@ export type Effective = {
 	dailyLimit: number | null;
 	publicURL: string | null;
 	ownerName: string | null;
+	ownerId: string | null;
 	clientId: string;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
 	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | KeyName, string>>;
@@ -99,6 +105,7 @@ export class Settings {
 			dailyLimit: limit && limit > 0 ? limit : null,
 			publicURL: stored.publicURL ?? null,
 			ownerName: stored.ownerName ?? null,
+			ownerId: stored.ownerId ?? null,
 			clientId: stored.clientId ?? '',
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),

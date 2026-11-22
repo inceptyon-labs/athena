@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { PickOutcome } from '../src/pick';
+import { PickError, type PickOutcome } from '../src/pick';
 import { cost } from '../src/prices';
 import { createApp, type Gate } from '../src/server';
 import { type Entry, Usage } from '../src/usage';
@@ -46,6 +46,16 @@ describe('usage', () => {
 		usage.record(entry({ status: 429, by: '', cost: 0 }));
 		expect(usage.usedToday('friend-id')).toBe(0);
 		expect(usage.recent().map((row) => row.status)).toEqual([429, 502]);
+	});
+
+	test('a request paired with one that failed before the model answered counts in its place', () => {
+		const usage = new Usage(':memory:', () => at('2026-11-21T20:00:00'));
+		const picks = usage.start(entry(), null) ?? 0;
+		const suggestions = usage.start(entry(), null) ?? 0;
+		expect(usage.usedToday('friend-id')).toBe(1);
+		usage.finish(picks, entry({ status: 502, by: '', error: 'Claude is busy. Try again.', cost: 0 }));
+		usage.finish(suggestions, entry({ picks: 0, suggestions: 6 }));
+		expect(usage.usedToday('friend-id')).toBe(1);
 	});
 
 	test('today starts at midnight and the month on the first, in the server time zone', () => {
@@ -166,6 +176,44 @@ describe('daily limit', () => {
 		await ask('friend-token', 'funny');
 		await ask('friend-token', 'scary');
 		expect((await ask('friend-token', 'scary')).status).toBe(200);
+	});
+
+	test('the same words sent over and over count once for every two, so the limit still holds', async () => {
+		const { ask } = setup();
+		const statuses = [];
+		for (let i = 0; i < 5; i++) statuses.push((await ask('friend-token', 'funny')).status);
+		expect(statuses).toEqual([200, 200, 200, 200, 429]);
+	});
+
+	test('requests sent at once all count, so they cannot get in under the limit together', async () => {
+		const { usage, ask } = setup();
+		const statuses = await Promise.all(['one', 'two', 'three', 'four', 'five'].map(async (request) => (await ask('friend-token', request)).status));
+		expect(statuses.filter((status) => status === 200)).toHaveLength(2);
+		expect(usage.usedToday('friend-id')).toBe(2);
+	});
+
+	test('an answer the model gave but Athena could not use counts, with its cost', async () => {
+		const usage = new Usage(':memory:');
+		const app = createApp({
+			ai: {
+				by: 'claude-haiku-5-5',
+				pick: async () => {
+					throw new PickError('Claude declined that request.', 502, { by: 'claude-haiku-5-5', usage: outcome.usage });
+				},
+			},
+			provider: 'anthropic',
+			model: 'claude-haiku-5-5',
+			gate,
+			usage,
+			dailyLimit: 1,
+		});
+		const body = JSON.stringify({ request: 'funny', kind: 'movie', titles: [{ id: '1', title: 'Airplane!' }] });
+		const headers = { 'Content-Type': 'application/json', 'X-Plex-Token': 'friend-token' };
+		expect((await app.request('/v1/pick', { method: 'POST', headers, body })).status).toBe(502);
+		expect(usage.usedToday('friend-id')).toBe(1);
+		expect(usage.recent(1)[0]).toMatchObject({ status: 502, by: 'claude-haiku-5-5', cost: cost('claude-haiku-5-5', outcome.usage) });
+		const again = body.replace('funny', 'scary');
+		expect((await app.request('/v1/pick', { method: 'POST', headers, body: again })).status).toBe(429);
 	});
 
 	test('a bad body or a failed answer uses none of the limit', async () => {

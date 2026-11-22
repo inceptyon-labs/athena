@@ -89,8 +89,9 @@ export function compat(provider: Provider, model: string, options: CompatOptions
 	const fetcher = options.fetcher ?? fetch;
 	const local = provider.id === 'local';
 	const effort = provider.models.find((candidate) => candidate.id === model)?.effort;
+	const by = local ? `local:${model}` : model;
 	return {
-		by: local ? `local:${model}` : model,
+		by,
 		async pick(req) {
 			const discover = discoverText(req);
 			const body = {
@@ -131,15 +132,17 @@ export function compat(provider: Provider, model: string, options: CompatOptions
 			if (!response.ok) throw new PickError(failure(provider, response.status, await response.text()));
 			const completion = (await response.json()) as Completion;
 			const choice = completion.choices?.[0];
-			if (choice?.message?.refusal) throw new PickError(`${provider.brand} declined that request.`);
-			if (choice?.finish_reason === 'length') throw new PickError(`${provider.brand}'s answer was cut off.`);
+			const paid = { by, usage: tokens(completion.usage) };
+			if (choice?.message?.refusal) throw new PickError(`${provider.brand} declined that request.`, 502, paid);
+			if (choice?.finish_reason === 'length') throw new PickError(`${provider.brand}'s answer was cut off.`, 502, paid);
+			const unusable = `${provider.brand}'s answer wasn't the JSON Athena asked for.`;
 			let parsed: ReturnType<typeof PickResult.safeParse>;
 			try {
 				parsed = PickResult.safeParse(answerJSON(choice?.message?.content ?? ''));
 			} catch {
-				throw new PickError(`${provider.brand}'s answer wasn't the JSON Athena asked for.`);
+				throw new PickError(unusable, 502, paid);
 			}
-			if (!parsed.success) throw new PickError(`${provider.brand}'s answer wasn't the JSON Athena asked for.`);
+			if (!parsed.success) throw new PickError(unusable, 502, paid);
 			return {
 				picks: cleanPicks(parsed.data.picks, req),
 				suggestions: cleanSuggestions(parsed.data.suggestions, req),

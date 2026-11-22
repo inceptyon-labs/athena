@@ -239,7 +239,12 @@ export function cleanMinimums(minimums: Minimums): Minimums {
 }
 
 export class PickError extends Error {
-	constructor(message: string, readonly status: 502 | 503 = 502) {
+	constructor(
+		message: string,
+		readonly status: 502 | 503 = 502,
+		/** Set when the model answered but the answer couldn't be used: it was paid for all the same. */
+		readonly paid?: { by: string; usage: PickOutcome['usage'] },
+	) {
 		super(message);
 	}
 }
@@ -294,9 +299,10 @@ export async function pick(client: Anthropic, model: string, req: PickRequest): 
 		.catch((error: unknown) => {
 			throw new PickError(describe(error));
 		});
-	if (response.stop_reason === 'refusal') throw new PickError('Claude declined that request.');
+	const paid = { by: model, usage: response.usage };
+	if (response.stop_reason === 'refusal') throw new PickError('Claude declined that request.', 502, paid);
 	const result = response.parsed_output;
-	if (!result) throw new PickError(`Claude's answer was cut off (${response.stop_reason}).`);
+	if (!result) throw new PickError(`Claude's answer was cut off (${response.stop_reason}).`, 502, paid);
 	return {
 		picks: cleanPicks(result.picks, req),
 		suggestions: cleanSuggestions(result.suggestions, req),

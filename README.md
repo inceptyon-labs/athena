@@ -107,12 +107,14 @@ logged. Until a Plex server is chosen, Athena answers no one.
 
 Anyone with access can sign in to the web page too; people other than the owner see only how many Describe Its they
 used today. The daily limit is per person, off until you set one, and never applies to you. Only Describe Its that
-the AI model or Jev answered count, and Ithaca's picks and suggestions for the same request count once. Past it,
+the AI model or Jev answered count, including answers Athena couldn't use, since the provider charges for those too.
+Ithaca's picks and suggestions for the same request count once. Past it,
 Ithaca shows them "You've used Describe It 20 times today on Jason's Athena. It resets at midnight.", with your name
 as Plex shows it.
 
 The first person to sign in to a new Athena chooses its Plex server from the servers they own, so set it up right
-after installing. To start over, stop Athena and delete `settings.json` from the data folder.
+after installing. From then on, only that Plex account opens Settings. To start over, stop Athena and delete
+`settings.json` from the data folder.
 
 ## Friends away from home
 

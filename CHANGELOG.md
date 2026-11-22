@@ -13,3 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Balanced and Best tiers, prices per Describe It, and a Test button.
 - Friends away from home: a public address, an `ithaca://` share link and QR code, a per-person daily limit.
 - Docker image workflow, Unraid template and Compose file.
+
+### Fixed
+- The daily limit held against requests sent at once, the same words sent over and over, and answers the model gave
+  that Athena couldn't use (now counted, with their cost on the status page).
+- Settings and the owner's exemption from the limit are for the Plex account that set Athena up, not every account
+  plex.tv lists as owning the server.
+- Settings' error banner shows only Athena's own messages; the web UI sends a Content-Security-Policy and `nosniff`.

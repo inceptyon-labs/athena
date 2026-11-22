@@ -99,6 +99,7 @@ function when(at: number, now: number) {
 }
 
 function result(entry: Entry) {
+	if (entry.status === 0) return 'Answering…';
 	if (entry.status === 429) return 'Over the daily limit';
 	if (entry.status !== 200) return entry.error ?? `Failed (${entry.status})`;
 	const parts = [];
@@ -188,10 +189,16 @@ export function mountWeb(app: Hono, web: Web) {
 
 	app.use('*', async (c, next) => {
 		await next();
+		c.res.headers.set('X-Content-Type-Options', 'nosniff');
 		if (c.res.headers.get('Content-Type')?.startsWith('text/html')) {
 			c.res.headers.set('Cache-Control', 'no-store');
 			c.res.headers.set('X-Frame-Options', 'DENY');
 			c.res.headers.set('Referrer-Policy', 'same-origin');
+			// No form-action: signing in sends the browser on to app.plex.tv.
+			c.res.headers.set(
+				'Content-Security-Policy',
+				"default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+			);
 		}
 	});
 
@@ -212,7 +219,9 @@ export function mountWeb(app: Hono, web: Web) {
 		if (!gate) return { role: 'setup', servers, machine: null };
 		const machine = await gate.machineIdentifier();
 		const server = servers.find((candidate) => candidate.id === machine);
-		return { role: server?.owned ? 'owner' : server ? 'viewer' : 'none', servers, machine };
+		// Once the owner who set Athena up is known, anyone else plex.tv says owns the server is a viewer.
+		const owner = server?.owned && (live.ownerId === null || live.ownerId === s.accountId);
+		return { role: owner ? 'owner' : server ? 'viewer' : 'none', servers, machine };
 	}
 
 	function serverName(servers: Server[], machine: string | null) {
@@ -229,6 +238,11 @@ export function mountWeb(app: Hono, web: Web) {
 				sessions.delete(getCookie(c, SESSION));
 				deleteCookie(c, SESSION, { path: '/' });
 				return { page: c.html(<SignIn />) };
+			}
+			if (role.role === 'owner' && live.ownerId === null) {
+				// Set up before Athena kept the owner's account: it learns it on the owner's first visit.
+				live.settings.save({ ownerId: s.accountId });
+				live.refresh();
 			}
 			return { s, ...role };
 		} catch (error) {
@@ -537,7 +551,7 @@ export function mountWeb(app: Hono, web: Web) {
 								</thead>
 								<tbody>
 									{recent.map((entry) => (
-										<tr class={entry.status === 200 ? undefined : 'failed'}>
+										<tr class={entry.status === 200 || entry.status === 0 ? undefined : 'failed'}>
 											<td class="when">{when(entry.at, now())}</td>
 											<td class="viewer">{entry.viewer ?? 'Unknown'}</td>
 											<td class="request">
@@ -545,7 +559,7 @@ export function mountWeb(app: Hono, web: Web) {
 											</td>
 											<td class="answer">{result(entry)}</td>
 											<td class="by">{entry.by ? modelName(entry.by) : ''}</td>
-											<td class="num took">{entry.status === 429 ? '' : duration(entry.ms)}</td>
+											<td class="num took">{entry.status === 429 || entry.status === 0 ? '' : duration(entry.ms)}</td>
 										</tr>
 									))}
 								</tbody>
@@ -646,7 +660,7 @@ export function mountWeb(app: Hono, web: Web) {
 				servers={servers}
 				machine={machine}
 				saved={c.req.query('saved') !== undefined}
-				problem={c.req.query('problem') ?? null}
+				problem={PROBLEMS.get(c.req.query('problem') ?? '') ?? null}
 			/>,
 		);
 	});
@@ -1019,7 +1033,7 @@ export function mountWeb(app: Hono, web: Web) {
 
 		if (!effective.env.server) {
 			const server = servers.find((candidate) => candidate.owned && candidate.id === text('server'));
-			if (!server) return c.redirect(`/settings?problem=${encodeURIComponent('Choose a Plex server you own.')}`, 303);
+			if (!server) return c.redirect('/settings?problem=server', 303);
 			patch.server = { id: server.id, name: server.name };
 		}
 		const chosen = text('provider');
@@ -1040,26 +1054,15 @@ export function mountWeb(app: Hono, web: Web) {
 		}
 		const local = text('localURL');
 		patch.localURL = local ? localBase(local) : null;
-		if (local && !patch.localURL)
-			return c.redirect(
-				`/settings?problem=${encodeURIComponent(LOCAL_ADDRESS)}`,
-				303,
-			);
+		if (local && !patch.localURL) return c.redirect('/settings?problem=local', 303);
 		const limit = text('dailyLimit');
-		if (limit && !/^\d{1,4}$/.test(limit))
-			return c.redirect(
-				`/settings?problem=${encodeURIComponent('The daily limit is a whole number, or empty for none.')}`,
-				303,
-			);
+		if (limit && !/^\d{1,4}$/.test(limit)) return c.redirect('/settings?problem=limit', 303);
 		patch.dailyLimit = limit ? Number(limit) : null;
 		const address = text('publicURL');
 		patch.publicURL = address ? publicAddress(address) : null;
-		if (address && !patch.publicURL)
-			return c.redirect(
-				`/settings?problem=${encodeURIComponent('The public address is an https:// address, such as https://athena.example.com.')}`,
-				303,
-			);
+		if (address && !patch.publicURL) return c.redirect('/settings?problem=public', 303);
 		patch.ownerName = s.name;
+		patch.ownerId = s.accountId;
 
 		live.settings.save(patch);
 		live.refresh();
@@ -1137,6 +1140,14 @@ export function mountWeb(app: Hono, web: Web) {
 }
 
 const LOCAL_ADDRESS = "The local model's address is an http:// address, such as http://192.168.1.10:11434/v1.";
+
+/** Why Settings refused a save, by the code in the address, so a link can't put its own words on the page. */
+const PROBLEMS = new Map([
+	['server', 'Choose a Plex server you own.'],
+	['local', LOCAL_ADDRESS],
+	['limit', 'The daily limit is a whole number, or empty for none.'],
+	['public', 'The public address is an https:// address, such as https://athena.example.com.'],
+]);
 
 /** Settings' Test request: small, so it costs next to nothing, with one clear fit. */
 const SAMPLE = PickRequest.parse({

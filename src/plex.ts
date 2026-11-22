@@ -5,7 +5,7 @@ import { warn } from './log';
 export interface Viewer {
 	id: string;
 	name: string;
-	/** Owns the Plex server: may change settings and has no daily limit. */
+	/** Owns the Plex server and is the account that set Athena up: may change settings and has no daily limit. */
 	owner: boolean;
 }
 
@@ -127,6 +127,8 @@ export class PlexGate {
 		private readonly plexTV: PlexTV,
 		private readonly fetcher: typeof fetch = fetch,
 		private readonly now: () => number = Date.now,
+		/** The account that set Athena up, by its plex.tv id; null until it is known. */
+		private readonly owner: () => string | null = () => null,
 	) {
 		this.machine = 'id' in server ? server.id : null;
 	}
@@ -155,7 +157,7 @@ export class PlexGate {
 		const key = createHash('sha256').update(token).digest('hex');
 		const now = this.now();
 		const known = this.allowed.get(key);
-		if (known && known.until > now) return known.viewer;
+		if (known && known.until > now) return this.judged(known.viewer);
 		if ((this.refused.get(key) ?? 0) > now) return null;
 		const machine = await this.machineIdentifier();
 		if (!machine) throw new Error("the Plex server didn't say which server it is");
@@ -167,7 +169,13 @@ export class PlexGate {
 		}
 		const viewer = { id: account.id, name: account.name, owner: server.owned };
 		this.remember(() => this.allowed.set(key, { until: now + 10 * 60_000, viewer }));
-		return viewer;
+		return this.judged(viewer);
+	}
+
+	/** plex.tv's word that an account owns the server isn't enough once the owner who set Athena up is known. */
+	private judged(viewer: Viewer): Viewer {
+		const owner = this.owner();
+		return viewer.owner && owner !== null && viewer.id !== owner ? { ...viewer, owner: false } : viewer;
 	}
 
 	private remember(set: () => void) {

@@ -13,6 +13,7 @@ export interface Entry {
 	/** The model that answered, "jev", or empty when nothing did. */
 	by: string;
 	ms: number;
+	/** 0 while the model is still answering. */
 	status: number;
 	error: string | null;
 	inputTokens: number;
@@ -43,6 +44,11 @@ export interface Person {
 	/** Some of their answers this month came from a model without a known price, so spend is a floor. */
 	unpriced: boolean;
 }
+
+/** Who asked what, logged before the model is asked. */
+type Asked = Pick<Entry, 'viewerId' | 'viewer' | 'kind' | 'request'>;
+/** The answer, filled in once the model has answered or failed. */
+type Answered = Omit<Entry, 'at' | keyof Asked>;
 
 /** Ithaca asks for a Describe It's picks and suggestions separately; the same words within this window count once. */
 const PAIRED = 2 * 60_000;
@@ -87,18 +93,89 @@ export class Usage {
 			cache_read INTEGER NOT NULL,
 			cache_write INTEGER NOT NULL,
 			cost REAL,
-			counted INTEGER NOT NULL
+			counted INTEGER NOT NULL,
+			paired_with INTEGER
 		)`);
+		const columns = this.db.query('PRAGMA table_info(requests)').all() as { name: string }[];
+		if (!columns.some((column) => column.name === 'paired_with')) this.db.run('ALTER TABLE requests ADD COLUMN paired_with INTEGER');
 		this.db.run('CREATE INDEX IF NOT EXISTS requests_at ON requests (at)');
 		this.db.run('CREATE INDEX IF NOT EXISTS requests_viewer ON requests (viewer_id, at)');
+		// Still answering when Athena last stopped. They keep counting: the model may have been paid for them.
+		this.db.run(`UPDATE requests SET status = 502, error = 'Athena stopped before the answer came back.' WHERE status = 0`);
 	}
 
-	/** Whether these words from this person were answered moments ago, so asking again doesn't count. */
-	repeats(viewerId: string, request: string): boolean {
+	/**
+	 * Logs a request before the model is asked, so requests sent at once see each other. It is paired with an earlier
+	 * one from the same person with the same words in the last two minutes that counts and isn't paired yet (Ithaca's
+	 * picks and suggestions for one Describe It), and otherwise counts. Past `limit`, unless paired, it is logged as
+	 * refused and the answer is null; otherwise the answer is the row for `finish`.
+	 */
+	start(asked: Asked, limit: number | null): number | null {
+		const at = this.now();
+		const first = this.db
+			.query(
+				`SELECT rowid AS id FROM requests AS first WHERE viewer_id = ? AND request = ? AND counted = 1 AND at > ?
+				AND NOT EXISTS (SELECT 1 FROM requests WHERE paired_with = first.rowid) ORDER BY at DESC LIMIT 1`,
+			)
+			.get(asked.viewerId, asked.request, at - PAIRED) as { id: number } | null;
+		const over = !first && Boolean(limit) && asked.viewerId !== null && this.usedToday(asked.viewerId) >= (limit ?? 0);
 		const row = this.db
-			.query('SELECT 1 FROM requests WHERE viewer_id = ? AND request = ? AND status = 200 AND at > ? LIMIT 1')
-			.get(viewerId, request, this.now() - PAIRED);
-		return row !== null;
+			.query(
+				`INSERT INTO requests (at, viewer_id, viewer, kind, request, picks, suggestions, by, ms, status, error,
+				input_tokens, output_tokens, cache_read, cache_write, cost, counted, paired_with)
+				VALUES (?, ?, ?, ?, ?, 0, 0, '', 0, ?, ?, 0, 0, 0, 0, 0, ?, ?)`,
+			)
+			.run(
+				at,
+				asked.viewerId,
+				asked.viewer,
+				asked.kind,
+				asked.request,
+				over ? 429 : 0,
+				over ? 'over the daily limit' : null,
+				over || first ? 0 : 1,
+				over ? null : (first?.id ?? null),
+			);
+		return over ? null : Number(row.lastInsertRowid);
+	}
+
+	/**
+	 * Fills in a started request's answer. It keeps counting only when a model answered, even unusably, since that was
+	 * paid for. Otherwise it counts for nothing, and a request paired with it counts in its place.
+	 */
+	finish(id: number, answered: Answered) {
+		const row = this.db.query('SELECT counted, paired_with AS pairedWith FROM requests WHERE rowid = ?').get(id) as {
+			counted: number;
+			pairedWith: number | null;
+		} | null;
+		if (!row) return;
+		const paid = answered.by !== '';
+		this.db
+			.query(
+				`UPDATE requests SET picks = ?, suggestions = ?, by = ?, ms = ?, status = ?, error = ?, input_tokens = ?,
+				output_tokens = ?, cache_read = ?, cache_write = ?, cost = ?, counted = ?, paired_with = ? WHERE rowid = ?`,
+			)
+			.run(
+				answered.picks,
+				answered.suggestions,
+				answered.by,
+				answered.ms,
+				answered.status,
+				answered.error,
+				answered.inputTokens,
+				answered.outputTokens,
+				answered.cacheRead,
+				answered.cacheWrite,
+				answered.cost,
+				paid ? row.counted : 0,
+				paid ? row.pairedWith : null,
+				id,
+			);
+		if (!paid && row.counted)
+			this.db
+				.query('UPDATE requests SET counted = 1, paired_with = NULL WHERE rowid = (SELECT rowid FROM requests WHERE paired_with = ? LIMIT 1)')
+				.run(id);
+		this.db.query('DELETE FROM requests WHERE at < ?').run(this.now() - KEEP);
 	}
 
 	/** Describe Its this person made today. */
@@ -145,35 +222,10 @@ export class Usage {
 			});
 	}
 
+	/** Logs a request that has already been answered. */
 	record(entry: Omit<Entry, 'at'>) {
-		const at = this.now();
-		const counted = entry.status === 200 && !(entry.viewerId && this.repeats(entry.viewerId, entry.request));
-		this.db
-			.query(
-				`INSERT INTO requests (at, viewer_id, viewer, kind, request, picks, suggestions, by, ms, status, error,
-				input_tokens, output_tokens, cache_read, cache_write, cost, counted)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			)
-			.run(
-				at,
-				entry.viewerId,
-				entry.viewer,
-				entry.kind,
-				entry.request,
-				entry.picks,
-				entry.suggestions,
-				entry.by,
-				entry.ms,
-				entry.status,
-				entry.error,
-				entry.inputTokens,
-				entry.outputTokens,
-				entry.cacheRead,
-				entry.cacheWrite,
-				entry.cost,
-				counted ? 1 : 0,
-			);
-		this.db.query('DELETE FROM requests WHERE at < ?').run(at - KEEP);
+		const id = this.start(entry, null);
+		if (id !== null) this.finish(id, entry);
 	}
 
 	/** Describe Its and estimated spend, today and this calendar month, in the server's time zone. */

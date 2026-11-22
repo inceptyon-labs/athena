@@ -126,6 +126,7 @@ describe('who sees what', () => {
 		const settings = await (await get('/settings', cookie)).text();
 		expect(settings).toContain('sk-ant-…wxyz');
 		expect(settings).not.toContain(KEY);
+		expect((await get('/settings', cookie)).headers.get('Content-Security-Policy')).toContain("default-src 'self'");
 	});
 
 	test('a key set by the environment shows locked, with what it is for and where to get one', async () => {
@@ -145,6 +146,16 @@ describe('who sees what', () => {
 		expect((await get('/settings', cookie)).status).toBe(303);
 		await post('/settings', { server: 'machine-1', anthropicKey: 'sk-ant-stolen', dailyLimit: '' }, cookie);
 		expect(live.effective.anthropicKey).toBe(KEY);
+	});
+
+	test("the owner's account is kept on their first visit, and no other account plex.tv says owns the server opens settings", async () => {
+		const { live, get, signIn } = athena(ready);
+		await get('/', await signIn('owner-token'));
+		expect(live.effective.ownerId).toBe('1001');
+		const other = athena({ ...ready, ownerId: '9999' });
+		const cookie = await other.signIn('owner-token');
+		expect((await other.get('/settings', cookie)).headers.get('Location')).toBe('/');
+		expect(await (await other.get('/', cookie)).text()).toContain('of 5 Describe Its today');
 	});
 
 	test("someone the server isn't shared with is told so", async () => {
@@ -190,10 +201,12 @@ describe('sharing with friends', () => {
 	const ready = { server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY };
 
 	test('the owner sets a public address, https only, and the owner is named for the daily limit', async () => {
-		const { live, post, signIn } = athena(ready);
+		const { live, get, post, signIn } = athena(ready);
 		const cookie = await signIn('owner-token');
 		const bad = await post('/settings', { server: 'machine-1', publicURL: 'http://athena.example.com' }, cookie);
-		expect(bad.headers.get('Location')).toContain('problem=');
+		expect(bad.headers.get('Location')).toBe('/settings?problem=public');
+		expect(await (await get('/settings?problem=public', cookie)).text()).toContain('The public address is an https:// address');
+		expect(await (await get('/settings?problem=Re-enter+your+key', cookie)).text()).not.toContain('Re-enter');
 		expect(live.effective.publicURL).toBeNull();
 		await post('/settings', { server: 'machine-1', publicURL: 'https://Athena.Example.com/' }, cookie);
 		expect(live.effective.publicURL).toBe('https://athena.example.com');

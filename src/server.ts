@@ -95,15 +95,25 @@ export function createApp(deps: Deps) {
 
 		const req = parsed.data;
 		const usage = deps.usage ?? null;
-		const entry = (status: number, by: string, outcome: PickOutcome | null, ms: number, error: string | null) => {
-			const tokens = outcome?.usage ?? NO_USAGE;
-			usage?.record({
-				viewerId: viewer.id,
-				viewer: viewer.name,
-				kind: req.kind,
-				request: req.request,
-				picks: outcome?.picks.length ?? 0,
-				suggestions: outcome?.suggestions.length ?? 0,
+		const limit = viewer.owner ? null : (deps.dailyLimit ?? null);
+		// Logged before the model is asked, so requests sent at once can't all get in under the limit.
+		const id = usage ? usage.start({ viewerId: viewer.id, viewer: viewer.name, kind: req.kind, request: req.request }, limit) : 0;
+		if (id === null) {
+			const times = limit === 1 ? 'once' : `${limit} times`;
+			const whose = deps.ownerName ? `${deps.ownerName}'s` : 'this';
+			return c.json({ error: `You've used Describe It ${times} today on ${whose} Athena. It resets at midnight.` }, 429);
+		}
+		const finish = (
+			status: number,
+			by: string,
+			tokens: PickOutcome['usage'],
+			answer: { picks: unknown[]; suggestions: unknown[] },
+			ms: number,
+			error: string | null,
+		) =>
+			usage?.finish(id, {
+				picks: answer.picks.length,
+				suggestions: answer.suggestions.length,
 				by,
 				ms,
 				status,
@@ -112,25 +122,16 @@ export function createApp(deps: Deps) {
 				outputTokens: tokens.output_tokens,
 				cacheRead: tokens.cache_read_input_tokens ?? 0,
 				cacheWrite: tokens.cache_creation_input_tokens ?? 0,
-				cost: outcome ? cost(by, tokens) : 0,
+				cost: by ? cost(by, tokens) : 0,
 			});
-		};
-
-		const limit = deps.dailyLimit ?? null;
-		if (limit && usage && !viewer.owner && usage.usedToday(viewer.id) >= limit && !usage.repeats(viewer.id, req.request)) {
-			entry(429, '', null, 0, 'over the daily limit');
-			const times = limit === 1 ? 'once' : `${limit} times`;
-			const whose = deps.ownerName ? `${deps.ownerName}'s` : 'this';
-			return c.json({ error: `You've used Describe It ${times} today on ${whose} Athena. It resets at midnight.` }, 429);
-		}
 
 		const started = Date.now();
 		try {
 			const { outcome, by } = await answer(req);
 			const { picks, suggestions, minimums, usage: tokens } = outcome;
-			entry(200, by, outcome, Date.now() - started, null);
+			finish(200, by, tokens, outcome, Date.now() - started, null);
 			log(
-				`pick ${req.kind} "${req.request}" from ${req.titles.length}: ${picks.length}` +
+				`pick ${req.kind} ${JSON.stringify(req.request)} from ${req.titles.length}: ${picks.length}` +
 					(req.suggest ? `, suggested ${suggestions.length} from ${req.discover?.length ?? 0} recent` : '') +
 					` in ${Date.now() - started}ms by ${by} ` +
 					`(in ${tokens.input_tokens}, cache read ${tokens.cache_read_input_tokens ?? 0}, ` +
@@ -140,8 +141,10 @@ export function createApp(deps: Deps) {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const status = error instanceof PickError ? error.status : 502;
-			entry(status, '', null, Date.now() - started, message);
-			warn(`pick ${req.kind} "${req.request}" failed after ${Date.now() - started}ms: ${message}`);
+			// A model that answered unusably was still paid for, so that counts like an answer.
+			const paid = error instanceof PickError ? error.paid : undefined;
+			finish(status, paid?.by ?? '', paid?.usage ?? NO_USAGE, { picks: [], suggestions: [] }, Date.now() - started, message);
+			warn(`pick ${req.kind} ${JSON.stringify(req.request)} failed after ${Date.now() - started}ms: ${message}`);
 			return c.json({ error: message }, status);
 		}
 	});

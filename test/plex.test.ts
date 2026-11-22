@@ -38,6 +38,12 @@ describe('Plex sign-in', () => {
 		expect(await gate.viewer('friend-token')).toEqual({ id: '1002', name: 'friend', owner: false });
 	});
 
+	test('once the owner who set Athena up is known, another account plex.tv says owns the server is only a viewer', async () => {
+		const plex = fakePlex();
+		const gate = new PlexGate({ id: 'machine-1' }, new PlexTV('athena-test', plex.fetcher), plex.fetcher, Date.now, () => '9999');
+		expect(await gate.viewer('owner-token')).toEqual({ id: '1001', name: 'Owner', owner: false });
+	});
+
 	test('a server chosen in settings needs no address', async () => {
 		const plex = fakePlex();
 		const gate = gateFor(plex.fetcher, { id: 'machine-1' });
