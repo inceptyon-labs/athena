@@ -426,7 +426,7 @@ export function mountWeb(app: Hono, web: Web) {
 		const ready = readiness(servers, machine);
 		const totals = usage.totals();
 		const recent = usage.recent(50);
-		const people = usage.todayByPerson();
+		const people = usage.byPerson();
 		const limit = live.dailyLimit;
 		return c.html(
 			<Layout title="Status" signedIn={s} nav="status">
@@ -482,20 +482,29 @@ export function mountWeb(app: Hono, web: Web) {
 
 				{people.length > 0 && (
 					<section class="people">
-						<h2>Today by person</h2>
+						<h2>By person</h2>
 						<ul>
 							{people.map((person) => {
 								const you = person.viewerId === s.accountId;
-								const full = !you && limit !== null && person.count >= limit;
+								const full = !you && limit !== null && person.today >= limit;
 								return (
 									<li class={full ? 'full' : undefined}>
 										<span class="person">
 											{person.viewer ?? 'Unknown'}
 											{you && <span class="you">you, no limit</span>}
 										</span>
-										<span class="count">
-											<strong>{person.count}</strong>
-											{!you && limit ? ` of ${limit}` : ''}
+										<span class="figures">
+											<span class="count today">
+												<strong>{person.today}</strong>
+												{!you && limit ? ` of ${limit}` : ''} today
+											</span>
+											<span class="count">
+												<strong>{person.month}</strong> this month,{' '}
+												<strong>
+													{money(person.spend)}
+													{person.unpriced ? '+' : ''}
+												</strong>
+											</span>
 										</span>
 									</li>
 								);

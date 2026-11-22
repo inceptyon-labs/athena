@@ -215,16 +215,18 @@ describe('sharing with friends', () => {
 		expect((await get('/share', await signIn('friend-token'))).headers.get('Location')).toBe('/');
 	});
 
-	test("the status page lists today's Describe Its per person, against the limit for all but the owner", async () => {
+	test("the status page lists each person's Describe Its today, against the limit for all but the owner, and this month with spend", async () => {
 		const { usage, get, signIn } = athena({ ...ready, dailyLimit: 2 });
-		const row = { kind: 'movie', picks: 9, suggestions: 0, by: 'jev', ms: 250, status: 200, error: null, inputTokens: 1, outputTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+		const row = { kind: 'movie', picks: 9, suggestions: 0, by: 'jev', ms: 250, status: 200, error: null, inputTokens: 1, outputTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0.02 };
 		usage.record({ ...row, viewerId: '1001', viewer: 'Owner', request: 'funny' });
 		usage.record({ ...row, viewerId: '1002', viewer: 'friend', request: 'funny' });
 		usage.record({ ...row, viewerId: '1002', viewer: 'friend', request: 'scary' });
 		const page = await (await get('/', await signIn('owner-token'))).text();
-		expect(page).toContain('Today by person');
-		expect(page).toMatch(/<li class="full"><span class="person">friend<\/span><span class="count"><strong>2<\/strong> of 2/);
-		expect(page).toMatch(/Owner<span class="you">you, no limit<\/span><\/span><span class="count"><strong>1<\/strong><\/span>/);
+		expect(page).toContain('By person');
+		expect(page).toMatch(
+			/<li class="full"><span class="person">friend<\/span><span class="figures"><span class="count today"><strong>2<\/strong> of 2 today<\/span><span class="count"><strong>2<\/strong> this month, <strong>\$0.04<\/strong>/,
+		);
+		expect(page).toMatch(/Owner<span class="you">you, no limit<\/span><\/span><span class="figures"><span class="count today"><strong>1<\/strong> today<\/span>/);
 	});
 });
 

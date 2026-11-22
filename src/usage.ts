@@ -32,6 +32,18 @@ export interface Totals {
 	unpriced: boolean;
 }
 
+/** One person's Describe Its, as the status page lists them. */
+export interface Person {
+	viewerId: string;
+	viewer: string | null;
+	today: number;
+	month: number;
+	/** Estimated dollars this month. */
+	spend: number;
+	/** Some of their answers this month came from a model without a known price, so spend is a floor. */
+	unpriced: boolean;
+}
+
 /** Ithaca asks for a Describe It's picks and suggestions separately; the same words within this window count once. */
 const PAIRED = 2 * 60_000;
 /** Kept for a little over a year, so a month can be compared with the same month last year. */
@@ -111,18 +123,25 @@ export class Usage {
 		return row.n >= 3 && row.size ? Math.round(row.size) : null;
 	}
 
-	/** Everyone who asked today with their Describe Its, most first, under the name they last had. */
-	todayByPerson(): { viewerId: string; viewer: string | null; count: number }[] {
+	/**
+	 * Everyone who asked this month, under the name they last had, with their Describe Its today and this month and
+	 * the estimated spend on them this month. Most today first, then most this month.
+	 */
+	byPerson(): Person[] {
+		const now = this.now();
 		// With MAX(rowid) the only min or max, SQLite takes the bare `viewer` from that latest row.
 		return this.db
 			.query(
-				`SELECT viewer_id AS viewerId, viewer, MAX(rowid) AS last, SUM(counted) AS count FROM requests
-				WHERE viewer_id IS NOT NULL AND at >= ? GROUP BY viewer_id ORDER BY count DESC, last DESC`,
+				`SELECT viewer_id AS viewerId, viewer, MAX(rowid) AS last,
+				COALESCE(SUM(CASE WHEN at >= ? THEN counted END), 0) AS today, SUM(counted) AS month,
+				COALESCE(SUM(cost), 0) AS spend, SUM(cost IS NULL AND by != '') AS unpriced
+				FROM requests WHERE viewer_id IS NOT NULL AND at >= ? GROUP BY viewer_id
+				ORDER BY today DESC, month DESC, last DESC`,
 			)
-			.all(startOfDay(this.now()))
+			.all(startOfDay(now), startOfMonth(now))
 			.map((row) => {
-				const { viewerId, viewer, count } = row as { viewerId: string; viewer: string | null; count: number };
-				return { viewerId, viewer, count };
+				const { viewerId, viewer, today, month, spend, unpriced } = row as Omit<Person, 'unpriced'> & { unpriced: number };
+				return { viewerId, viewer, today, month, spend, unpriced: unpriced > 0 };
 			});
 	}
 

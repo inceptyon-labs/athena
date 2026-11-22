@@ -65,7 +65,7 @@ To build from source instead, clone this repository, `cp .env.example .env`, set
    person. Save.
 
 The status page then says whether Athena is ready and why not, how many Describe Its it answered today and this month,
-an estimate of what that cost, how many each person used today, and the last 50 requests: who asked, what they typed,
+an estimate of what that cost, how many each person used today and this month with what theirs cost, and the last 50 requests: who asked, what they typed,
 the answer, the model and how long it took.
 
 At home, Athena turns up in Ithaca by itself when it runs on the Plex machine with port 8800: Ithaca asks port 8800 on
@@ -164,7 +164,7 @@ TypeSafe key, or when Jev fails, the AI model makes the library picks too.
 The web page is at `/`; Ithaca uses the two routes below.
 
 `GET /healthz` returns `{ ok, ready, model, provider, jev, service: "athena", server }`. `ready` is false until a Plex
-server is chosen and an AI model is set up, `provider` is where what the viewer types goes (`anthropic`, `openai`,
+server is chosen and an AI model or a TypeSafe key is set up, `provider` is where what the viewer types goes (`anthropic`, `openai`,
 `gemini`, `xai`, `deepseek` or `local`), `jev` says whether library picks go to Jev, `service` is how Ithaca recognises
 Athena on port 8800, and `server` is the machine identifier of the Plex server Athena checks sign-ins against (null
 without one).

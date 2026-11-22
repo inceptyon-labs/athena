@@ -28,7 +28,7 @@ The optional, self-hosted companion to Ithaca for Plex. It runs on the owner's o
 ## Capabilities and Constraints
 
 - Settings: Plex server (from the owner's plex.tv servers), AI provider (Anthropic, OpenAI, Google, xAI, DeepSeek or a local server) with its key or address, a tier (Fast, Balanced, Best) with about what a request costs, and a test; optional TypeSafe key for Jev, public address, per-person daily limit. Environment variables win over saved settings.
-- Status: ready or not and why, requests today and this month, estimated spend from logged token counts, today's count per person, the last 50 requests.
+- Status: ready or not and why, requests today and this month, estimated spend from logged token counts, each person's count today and this month with their spend, the last 50 requests.
 - Share (owner only, once the public address is set): an `ithaca://athena?url=` link to copy, its QR code for an iPhone or iPad camera, and the address in large type for Apple TV.
 - Secrets are never shown in full or logged. Small and fast: server-rendered, minimal JavaScript, no frontend framework.
 - The API is Ithaca's contract and does not change shape.

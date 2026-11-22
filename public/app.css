@@ -526,7 +526,7 @@ tr.failed td.answer {
 	color: var(--bad);
 }
 
-/* Today by person */
+/* By person */
 
 .people {
 	margin-top: 36px;
@@ -540,7 +540,7 @@ tr.failed td.answer {
 	list-style: none;
 	margin: 0;
 	padding: 0;
-	max-width: 32rem;
+	max-width: 40rem;
 	background: var(--surface);
 	border: 1px solid var(--line);
 	border-radius: 12px;
@@ -549,12 +549,20 @@ tr.failed td.answer {
 
 .people li {
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: space-between;
 	align-items: baseline;
-	gap: 12px;
+	gap: 4px 12px;
 	padding: 10px 14px;
 	border-bottom: 1px solid var(--line);
 	font-size: 0.9375rem;
+}
+
+.figures {
+	display: grid;
+	grid-template-columns: 7.5rem 11rem;
+	gap: 20px;
+	text-align: right;
 }
 
 .people li:last-child {
@@ -582,8 +590,8 @@ tr.failed td.answer {
 	font-weight: 650;
 }
 
-.people li.full .count,
-.people li.full .count strong {
+.people li.full .today,
+.people li.full .today strong {
 	color: var(--warn);
 }
 
@@ -992,6 +1000,12 @@ select:focus-visible {
 
 	.totals > div:nth-child(n + 3) {
 		border-top: 1px solid var(--line);
+	}
+
+	.figures {
+		flex-basis: 100%;
+		grid-template-columns: 7.5rem auto;
+		text-align: left;
 	}
 
 	thead {

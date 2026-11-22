@@ -59,20 +59,25 @@ describe('usage', () => {
 		expect(usage.totals()).toEqual({ today: 2, month: 2, spendToday: 0.25, spendMonth: 0.25, unpriced: true });
 	});
 
-	test("today's Describe Its per person, under their latest name, most first", () => {
-		let now = at('2026-11-20T21:00:00');
+	test('Describe Its and spend per person, today and this month, under their latest name, most today first', () => {
+		let now = at('2026-10-31T21:00:00');
 		const usage = new Usage(':memory:', () => now);
-		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner' }));
+		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner', cost: 9 }));
+		now = at('2026-11-20T21:00:00');
+		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner', request: 'one', cost: 0.5 }));
+		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner', request: 'two', by: 'claude-mystery-9', cost: null }));
+		usage.record(entry({ viewerId: 'cousin-id', viewer: 'Cousin', cost: 0.25 }));
 		now = at('2026-11-21T09:00:00');
-		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner' }));
-		usage.record(entry({ request: 'one' }));
-		usage.record(entry({ request: 'one', suggestions: 6 }));
-		usage.record(entry({ request: 'two', viewer: 'Friend Renamed' }));
+		usage.record(entry({ viewerId: 'owner-id', viewer: 'Owner', cost: 0.5 }));
+		usage.record(entry({ request: 'one', cost: 0.25 }));
+		usage.record(entry({ request: 'one', suggestions: 6, cost: 0.25 }));
+		usage.record(entry({ request: 'two', viewer: 'Friend Renamed', cost: 0.25 }));
 		usage.record(entry({ viewerId: 'kid-id', viewer: 'Kid', status: 502, by: '', cost: 0 }));
-		expect(usage.todayByPerson()).toEqual([
-			{ viewerId: 'friend-id', viewer: 'Friend Renamed', count: 2 },
-			{ viewerId: 'owner-id', viewer: 'Owner', count: 1 },
-			{ viewerId: 'kid-id', viewer: 'Kid', count: 0 },
+		expect(usage.byPerson()).toEqual([
+			{ viewerId: 'friend-id', viewer: 'Friend Renamed', today: 2, month: 2, spend: 0.75, unpriced: false },
+			{ viewerId: 'owner-id', viewer: 'Owner', today: 1, month: 3, spend: 1, unpriced: true },
+			{ viewerId: 'cousin-id', viewer: 'Cousin', today: 0, month: 1, spend: 0.25, unpriced: false },
+			{ viewerId: 'kid-id', viewer: 'Kid', today: 0, month: 0, spend: 0, unpriced: false },
 		]);
 	});
 
