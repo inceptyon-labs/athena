@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "git@github.com:inceptyon-labs/athena.git",
-      "revision": "3d3c36c7559f88cbed8321c96973c1442e32afab",
+      "revision": "f3ab9bf3087ff59f13dcfd4d0ac5f6aa9fc0a4c8",
       "link_mode": "local-only"
     }
   },
@@ -43,16 +43,16 @@
       "id": "plex", "type": "security", "label": "Plex access check", "sublabel": "PlexGate + PlexTV · plex.ts",
       "tag": "SHA-256 token cache", "pos": [680, 220], "size": [170, 68],
       "sources": [
-        { "path": "src/plex.ts", "line": 37, "end_line": 72, "label": "PlexTV: /api/v2/resources and /user" },
-        { "path": "src/plex.ts", "line": 74, "end_line": 96, "label": "PlexTV: PIN sign-in calls" },
-        { "path": "src/plex.ts", "line": 153, "end_line": 171, "label": "PlexGate.viewer: hashed cache" }
+        { "path": "src/plex.ts", "line": 64, "end_line": 99, "label": "PlexTV: /api/v2/resources and /user" },
+        { "path": "src/plex.ts", "line": 100, "end_line": 120, "label": "PlexTV.sharedTokens: the share list" },
+        { "path": "src/plex.ts", "line": 212, "end_line": 263, "label": "PlexGate.viewer: shares, then account" }
       ]
     },
     {
-      "id": "plextv", "type": "external", "label": "plex.tv", "sublabel": "accounts · servers · PINs",
+      "id": "plextv", "type": "external", "label": "plex.tv", "sublabel": "accounts · servers · shares · PINs",
       "pos": [1420, 220], "size": [190, 68],
       "sources": [
-        { "path": "src/plex.ts", "line": 19, "end_line": 35, "label": "base https://plex.tv" }
+        { "path": "src/plex.ts", "line": 46, "end_line": 62, "label": "base https://plex.tv" }
       ]
     },
     {
@@ -75,9 +75,9 @@
       "id": "api", "type": "backend", "label": "Ithaca API", "sublabel": "POST /v1/pick · /healthz",
       "tag": "answer()", "pos": [655, 350], "size": [220, 76],
       "sources": [
-        { "path": "src/server.ts", "line": 45, "end_line": 57, "label": "answer(): Jev or the chosen model" },
-        { "path": "src/server.ts", "line": 74, "end_line": 125, "label": "/v1/pick: Plex check, daily limit" },
-        { "path": "src/server.ts", "line": 127, "end_line": 146, "label": "answer, log, respond" }
+        { "path": "src/server.ts", "line": 47, "end_line": 61, "label": "answer(): Jev or the chosen model" },
+        { "path": "src/server.ts", "line": 78, "end_line": 130, "label": "/v1/pick: Plex check, daily limit" },
+        { "path": "src/server.ts", "line": 132, "end_line": 154, "label": "answer, log, respond" }
       ]
     },
     {
@@ -182,7 +182,7 @@
     { "id": "serve-to-web", "from": "serve", "to": "web", "label": "/, /share, /settings" },
     { "id": "api-to-plex", "from": "api", "to": "plex", "label": "viewer(X-Plex-Token)", "variant": "security" },
     { "id": "web-to-plex", "from": "web", "to": "plex", "label": "PIN sign-in, servers", "variant": "security" },
-    { "id": "plex-to-plextv", "from": "plex", "to": "plextv", "label": "/api/v2 resources + user", "variant": "security" },
+    { "id": "plex-to-plextv", "from": "plex", "to": "plextv", "label": "share list (owner's token), resources + user", "variant": "security" },
     { "id": "web-to-settings", "from": "web", "to": "settings", "label": "save (owner or setup)" },
     { "id": "api-to-claude", "from": "api", "to": "claude", "label": "ai.pick if Anthropic", "variant": "emphasis" },
     { "id": "api-to-jev", "from": "api", "to": "jev", "label": "suggest 0 + key" },
@@ -197,8 +197,8 @@
     {
       "dot": "cyan", "title": "Describe It, step by step",
       "items": [
-        "Ithaca POSTs /v1/pick with the viewer's X-Plex-Token and the titles that fit its filters",
-        "503 until a Plex server is chosen; 401 unless plex.tv lists that server for the account",
+        "Ithaca POSTs /v1/pick with the viewer's token for the Plex server (never their account token) and the titles that fit",
+        "503 until a Plex server is chosen; 401 unless plex.tv's share list has the token, or lists the server for it as an account",
         "Non-owners past the daily limit get 429; Ithaca's paired picks and suggestions count once",
         "answer(): suggest 0 with a TypeSafe key goes to Jev; a Jev failure falls back to the chosen model",
         "Picks are cut to ids the request sent; the outcome and its cost estimate (prices.ts) go to athena.db"
@@ -210,7 +210,7 @@
         "Home network: compose publishes :8800 on one address (127.0.0.1 by default), never 0.0.0.0",
         "Internet: friends reach Athena only through the owner's HTTPS reverse proxy",
         "Athena container: API keys live in settings.json (mode 600, umask 077); it runs as 99:100",
-        "Plex tokens: SHA-256 hashes in PlexGate's cache; web sessions hold them in memory only",
+        "Viewers' Plex tokens: SHA-256 hashes in PlexGate's cache; only the owner's is saved, to read the share list",
         "Third-party AI gets the request text and library titles; a local model keeps them on the LAN"
       ]
     },
