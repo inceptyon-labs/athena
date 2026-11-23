@@ -10,6 +10,9 @@ data
 # Archify diagram output (local, regenerated on demand)
 .archify/
 
+# Security scan reports (local; the repo is public)
+docs/scans/
+
 # AI assistant config (local-only)
 CLAUDE.md
 AGENTS.md
