@@ -12,8 +12,11 @@ export type Outcome =
 	| { kind: 'noNames' }
 	/** Audible's edition is this many seconds longer (negative: shorter). */
 	| { kind: 'lengthDiffers'; seconds: number }
-	/** Same length, but Audible's chapters start in different places. */
-	| { kind: 'marksDiffer' }
+	/**
+	 * Same length, but Audible's chapters start in different places: a different number of chapters, or the first
+	 * chapter (counting from 1) whose start is off, and by how many seconds (positive: Audible's is later).
+	 */
+	| { kind: 'marksDiffer'; audible: number; book: number; off: { chapter: number; seconds: number } | null }
 	| { kind: 'notFound' };
 
 /** How far Audible's length can be from the book's, in seconds. */
@@ -63,8 +66,11 @@ export function match(audible: AudibleChapters, marks: AbsChapter[], duration: n
 		if (start + item.lengthMs / 1000 <= 0 || start >= duration) continue;
 		shifted.push({ start: Math.max(0, start), title: item.title });
 	}
-	if (shifted.length !== marks.length) return { kind: 'marksDiffer' };
-	if (shifted.some((item, index) => Math.abs(item.start - (marks[index]?.start ?? Number.NaN)) > MARK_TOLERANCE))
-		return { kind: 'marksDiffer' };
+	if (shifted.length !== marks.length) return { kind: 'marksDiffer', audible: shifted.length, book: marks.length, off: null };
+	const index = shifted.findIndex((item, at) => Math.abs(item.start - (marks[at]?.start ?? Number.NaN)) > MARK_TOLERANCE);
+	if (index >= 0) {
+		const seconds = (shifted[index]?.start ?? 0) - (marks[index]?.start ?? 0);
+		return { kind: 'marksDiffer', audible: shifted.length, book: marks.length, off: { chapter: index + 1, seconds } };
+	}
 	return { kind: 'ready', chapters: marks.map((mark, index) => ({ ...mark, title: shifted[index]?.title ?? mark.title })) };
 }

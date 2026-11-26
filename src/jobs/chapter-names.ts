@@ -21,7 +21,16 @@ export const chapterNames: Job = {
 	summary:
 		"Finds audiobooks whose chapters are only numbered, like “Chapter 1”, and names them from Audible when Audible's chapters line up with the book's. Only titles change.",
 	outcomes: [
-		{ id: 'renamed', label: 'Renamed' },
+		{
+			id: 'renamed',
+			label: 'Renamed',
+			note: 'These now have Audible’s chapter names, in every app. Undo puts the old titles back.',
+		},
+		{
+			id: 'ready',
+			label: 'Can be renamed',
+			note: 'Audible has names for these books, and its chapters start where the book’s do, so only the titles change. Rename to use them.',
+		},
 		{
 			id: 'unsure',
 			label: 'Not confirmed',
@@ -30,18 +39,29 @@ export const chapterNames: Job = {
 		{
 			id: 'changed',
 			label: 'Changed meanwhile',
-			note: 'Its chapters changed while Athena was looking, or since the check. Left alone; the next run looks again.',
+			note: 'Their chapters changed while Athena was looking, or since the check, so they were left alone. The next check looks again.',
 		},
-		{ id: 'ready', label: 'Names found', note: "Audible's chapters line up with these books' within 2 seconds." },
 		{
 			id: 'marksDiffer',
-			label: 'Chapters break differently',
-			note: "Audible's chapters start in different places, so its names wouldn't match. Left alone.",
+			label: 'Chapters don’t line up',
+			note: 'Audible splits these books into chapters in different places, so its names would land on the wrong chapters. Left alone.',
 		},
-		{ id: 'lengthDiffers', label: 'Different length', note: "Audible's edition is a different recording. Left alone." },
-		{ id: 'noNames', label: 'Numbered on Audible too' },
-		{ id: 'notFound', label: 'Not found on Audible', note: "Check the book's ASIN in Audiobookshelf." },
-		{ id: 'error', label: "Couldn't check" },
+		{
+			id: 'lengthDiffers',
+			label: 'Different recording',
+			note: 'Audible’s edition is a different length, so it’s probably another recording (abridged, another narrator), or the book’s ASIN in Audiobookshelf points at the wrong book. Open the book to check its ASIN.',
+		},
+		{
+			id: 'noNames',
+			label: 'Audible numbers them too',
+			note: 'Audible’s chapters for these are only numbers as well, so there’s nothing better to use.',
+		},
+		{
+			id: 'notFound',
+			label: 'Not on Audible',
+			note: 'Audible has no chapter list for the ASIN Audiobookshelf has for these. Open the book to check its ASIN.',
+		},
+		{ id: 'error', label: "Couldn't check", note: 'Something went wrong asking Audiobookshelf. The next check tries again.' },
 	],
 	undoable: ['renamed', 'unsure'],
 	async run(ctx) {
@@ -173,7 +193,7 @@ async function rename(ctx: JobContext, listed: AbsBook, planned: { before: unkno
 	if (!after || !before || before.length !== after.length) return false;
 	// The chapters as the check saw them: its marks, with the titles they had.
 	const checked = after.map((chapter, index) => ({ ...chapter, title: before[index] ?? '' }));
-	return save(ctx, listed, checked, after, describe({ kind: 'ready', chapters: after }, after.length));
+	return save(ctx, listed, checked, after, describe({ kind: 'ready', chapters: after }, before));
 }
 
 /**
@@ -192,37 +212,48 @@ async function check(ctx: JobContext, listed: AbsBook): Promise<boolean> {
 			item: book.id,
 			title: book.title,
 			outcome: outcome.kind,
-			detail: describe(outcome, chapters.length),
+			detail: describe(outcome, before),
 			before,
 			...(outcome.kind === 'ready' ? { after: outcome.chapters } : {}),
 		});
 		return outcome.kind !== 'ready';
 	}
 
-	return save(ctx, book, chapters, outcome.chapters, describe(outcome, chapters.length));
+	return save(ctx, book, chapters, outcome.chapters, describe(outcome, before));
 }
 
-function describe(outcome: Outcome, count: number): string {
+/** What the run log says about a book, in a line. */
+function describe(outcome: Outcome, before: string[]): string {
 	switch (outcome.kind) {
-		case 'ready': {
-			const names = outcome.chapters
-				.map((chapter) => chapter.title)
-				.filter((title) => !isCredits(title))
-				.slice(0, 3)
-				.join(', ');
-			return `${count} chapters: ${names}…`;
-		}
+		case 'ready':
+			return preview(before, outcome.chapters.map((chapter) => chapter.title));
 		case 'noNames':
-			return 'Audible numbers them too.';
+			return 'Audible’s chapters are numbered too.';
 		case 'lengthDiffers': {
 			const amount = length(Math.abs(outcome.seconds));
-			return outcome.seconds > 0 ? `Audible's edition is ${amount} longer.` : `Audible's edition is ${amount} shorter.`;
+			return outcome.seconds > 0 ? `Audible’s edition is ${amount} longer.` : `Audible’s edition is ${amount} shorter.`;
 		}
 		case 'marksDiffer':
-			return "Audible's chapters start in different places from this book's.";
+			if (!outcome.off) return `Audible has ${outcome.audible} chapters; this book has ${outcome.book}.`;
+			return `Audible’s chapter ${outcome.off.chapter} starts ${length(Math.abs(outcome.off.seconds))} ${outcome.off.seconds > 0 ? 'later' : 'earlier'} than this book’s.`;
 		case 'notFound':
-			return 'Audible has no chapters for its ASIN.';
+			return 'Audible has no chapter list for its ASIN.';
 	}
+}
+
+/**
+ * The renames that matter, such as "001 → Opening Credits, 002 → Chapter 1, …, 036 → Epilogue (37 of 37 titles
+ * change)": the first two changes, then up to four names that aren't only a number.
+ */
+export function preview(before: string[], after: string[]) {
+	const changes = after.flatMap((title, index) => (title === before[index] ? [] : [{ index, text: `${before[index] ?? ''} → ${title}` }]));
+	if (changes.length === 0) return 'No titles would change.';
+	const first = changes.slice(0, 2);
+	const named = changes.slice(2).filter((change) => !isNumbered(after[change.index] ?? '', '')).slice(0, 4);
+	const parts = first.map((change) => change.text);
+	if (changes.length > first.length + named.length) parts.push('…');
+	parts.push(...named.map((change) => change.text));
+	return `${parts.join(', ')} (${changes.length} of ${after.length} titles change)`;
 }
 
 function length(seconds: number) {

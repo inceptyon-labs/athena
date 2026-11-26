@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { AbsChapter, AudibleChapters } from '../src/abs';
 import { isNumbered, match } from '../src/chapters';
+import { preview } from '../src/jobs/chapter-names';
 
 const marks = (...starts: number[]): AbsChapter[] =>
 	starts.map((start, index) => ({ id: index, start, end: starts[index + 1] ?? 1003, title: `Chapter ${index + 1}` }));
@@ -71,5 +72,15 @@ describe("matching Audible's names to a book's chapters", () => {
 		const numbered = { ...audible, chapters: audible.chapters?.map((chapter, index) => ({ ...chapter, title: `Chapter ${index}` })) };
 		expect(match(numbered, marks(0, 2, 600, 1000), 1003, 'X').kind).toBe('noNames');
 		expect(match({ error: 'Chapters not found' }, marks(0, 500), 1003, 'X').kind).toBe('notFound');
+	});
+});
+
+describe('the preview of a rename', () => {
+	test('shows the first changes, then the names that are more than a number', () => {
+		const before = Array.from({ length: 37 }, (_, index) => String(index + 1).padStart(3, '0'));
+		const after = ['Opening Credits', ...Array.from({ length: 34 }, (_, index) => `Chapter ${index + 1}`), 'Epilogue', 'End Credits'];
+		expect(preview(before, after)).toBe(
+			'001 → Opening Credits, 002 → Chapter 1, …, 036 → Epilogue, 037 → End Credits (37 of 37 titles change)',
+		);
 	});
 });

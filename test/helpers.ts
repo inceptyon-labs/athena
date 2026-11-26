@@ -115,6 +115,7 @@ export function fakeAbs(duringLookup: (books: Record<string, unknown>) => void =
 			});
 		if (path === '/api/libraries/books/items')
 			return Response.json({
+				total: Object.keys(books).length + 1,
 				results: [
 					...Object.values(books).map((book) => ({
 						id: book.id,

@@ -130,6 +130,15 @@ export class Audiobookshelf {
 		return answer.results.map(bookOf);
 	}
 
+	/** How many books a library has. */
+	async count(libraryId: string): Promise<number> {
+		const answer = await this.get<{ total?: number }>(`/api/libraries/${encodeURIComponent(libraryId)}/items`, {
+			limit: '1',
+			minified: '1',
+		});
+		return answer.total ?? 0;
+	}
+
 	/** One book, with its chapters. */
 	async book(id: string): Promise<AbsBook> {
 		return bookOf(await this.get<RawBook>(`/api/items/${encodeURIComponent(id)}`, { expanded: '1' }));

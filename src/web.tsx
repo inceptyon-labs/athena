@@ -2,9 +2,9 @@ import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { raw } from 'hono/html';
 import type { Child, FC } from 'hono/jsx';
-import { absBase, type AbsUser } from './abs';
+import { absBase, Audiobookshelf, type AbsUser } from './abs';
 import { listModels } from './compat';
-import type { Run, Runner } from './jobs';
+import type { Run, RunItem, Runner } from './jobs';
 import { type Live, makeAI } from './live';
 import { warn } from './log';
 import { PickRequest } from './pick';
@@ -679,6 +679,32 @@ export function mountWeb(app: Hono, web: Web) {
 		return parts.length ? parts.join(', ') : 'Nothing to fix';
 	}
 
+	const books = (n: number) => `${n} ${n === 1 ? 'book' : 'books'}`;
+
+	/** A run's page, in a sentence or two: what it looked at, what it found, and whether anything changed. */
+	function summary(run: Run, items: RunItem[]) {
+		if (run.status === 'running') return `${status(run)}…`;
+		if (run.status === 'failed') return `${status(run)}.`;
+		const at = `${new Date(run.started).toDateString() === new Date(now()).toDateString() ? 'at' : 'on'} ${when(run.started, now())}`;
+		const unchecked = run.total - run.checked;
+		const stopped = run.status === 'stopped' ? ` It was stopped before the end${unchecked > 0 ? `, with ${books(unchecked)} not looked at` : ''}.` : '';
+		const count = (outcome: string) => items.filter((item) => item.outcome === outcome).length;
+		if (run.dryRun) {
+			const named = Math.max(0, run.checked - items.length);
+			const ready = count('ready');
+			const cant = items.length - ready;
+			const found =
+				items.length === 0
+					? ''
+					: ` ${books(items.length)} ${items.length === 1 ? 'has' : 'have'} only numbered chapters: ${ready} can be renamed${cant ? `, ${cant} can’t (why below)` : ''}.`;
+			return `Checked ${books(run.checked)} with an ASIN ${at}. ${named} already ${named === 1 ? 'has' : 'have'} chapter names.${found} Nothing was changed.${stopped}`;
+		}
+		const renamed = count('renamed');
+		const left = items.length - renamed;
+		const who = run.trigger === 'schedule' ? 'Ran by itself' : 'Ran';
+		return `${who} ${at}, looking at ${books(run.checked)}: renamed ${renamed}${left ? `, left ${left} alone (why below)` : ''}.${stopped}`;
+	}
+
 	function status(run: Run) {
 		if (run.status === 'running') return run.total ? `Checking ${run.checked} of ${run.total}` : 'Starting';
 		if (run.status === 'failed') return `Failed: ${run.error ?? 'unknown error'}`;
@@ -834,8 +860,7 @@ export function mountWeb(app: Hono, web: Web) {
 				<div class="page-head">
 					<h1>{job?.title ?? run.job}</h1>
 					<p class="lede">
-						{run.dryRun ? 'Checked' : run.trigger === 'schedule' ? 'Ran by itself' : 'Ran'} {when(run.started, now())}:{' '}
-						{status(run)}. {run.dryRun && 'Nothing was changed.'} <a href="/automations">Automations</a>
+						{summary(run, items)} <a href="/automations">Automations</a>
 					</p>
 				</div>
 				{problem && (
@@ -860,7 +885,15 @@ export function mountWeb(app: Hono, web: Web) {
 									<tbody>
 										{group.map((item) => (
 											<tr>
-												<td class="request">{item.title}</td>
+												<td class="request">
+													{live.abs ? (
+														<a href={`${live.abs.url}/item/${encodeURIComponent(item.item)}`} target="_blank" rel="noreferrer">
+															{item.title}
+														</a>
+													) : (
+														item.title
+													)}
+												</td>
 												<td class="answer">{item.detail}</td>
 												{job?.undoable?.includes(outcome.id) && (
 													<td class="num">
@@ -1212,6 +1245,13 @@ export function mountWeb(app: Hono, web: Web) {
 							</select>
 							<span class="hint">Where chapter names are looked up, by each book's ASIN.</span>
 						</label>
+						<div class="test">
+							<button type="button" class="secondary" data-test-abs hidden>
+								Test
+							</button>
+							<output class="test-result" aria-live="polite" />
+						</div>
+						<p class="hint">Test signs in to Audiobookshelf with the address and key above, before you save.</p>
 					</fieldset>
 
 					<div class="actions">
@@ -1462,6 +1502,38 @@ export function mountWeb(app: Hono, web: Web) {
 	 * Ithaca's requests take, so a rejected key, a model the key can't use or a parameter the provider refuses shows up
 	 * here first. It costs a fraction of a cent and isn't logged. A local server's models come back for the Model field.
 	 */
+	/** Settings' Audiobookshelf Test: signs in with the address and key typed (or saved) and lists the book libraries. */
+	app.post('/settings/test-abs', async (c) => {
+		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
+		const found = await who(c);
+		if ('page' in found) return c.json({ ok: false, message: 'Sign in again.' }, 401);
+		const setter = found.role === 'owner' || (found.role === 'setup' && found.servers.some((server) => server.owned));
+		if (!setter) return c.json({ ok: false, message: 'Only the owner can test this.' }, 403);
+		const form = await c.req.parseBody();
+		const field = (key: string) => (typeof form[key] === 'string' ? (form[key] as string).trim() : '');
+		const effective = live.effective;
+		const typed = effective.env.absURL ? '' : field('absURL');
+		const url = typed ? absBase(typed) : effective.absURL;
+		if (typed && !url) return c.json({ ok: false, message: PROBLEMS.get('abs') });
+		const key = (effective.env.absKey ? '' : field('absKey')) || effective.absKey;
+		if (!url || !key) return c.json({ ok: false, message: 'Enter the address and an API key first.' });
+		const abs = new Audiobookshelf(url, key, live.fetcher);
+		try {
+			const user = await abs.me();
+			const libraries = (await abs.libraries()).filter((library) => library.mediaType === 'book');
+			const counted = await Promise.all(libraries.map(async (library) => `${library.name} (${books(await abs.count(library.id))})`));
+			const where = counted.length ? `Book libraries: ${counted.join(', ')}.` : 'It has no book libraries.';
+			if (!user.canUpdate)
+				return c.json({
+					ok: false,
+					message: `Signed in as ${user.username}, but that user can't update books, so Athena could only check. ${where}`,
+				});
+			return c.json({ ok: true, message: `Signed in as ${user.username}, who can update books. ${where}` });
+		} catch (error) {
+			return c.json({ ok: false, message: error instanceof Error ? error.message : String(error) });
+		}
+	});
+
 	app.post('/settings/test', async (c) => {
 		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
 		const found = await who(c);

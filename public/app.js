@@ -3,7 +3,7 @@
 const button = document.querySelector('[data-test-key]');
 if (button) {
 	const form = button.closest('form');
-	const output = form.querySelector('.test-result');
+	const output = button.parentElement.querySelector('.test-result');
 	const value = (name) => {
 		const field = form.elements.namedItem(name);
 		return field && 'value' in field ? field.value : '';
@@ -40,6 +40,39 @@ if (button) {
 		if (event.target.name === 'provider') {
 			output.className = 'test-result';
 			output.textContent = '';
+		}
+	});
+}
+
+// Settings' Audiobookshelf Test: signs in with the address and key typed above, before they're saved.
+const absButton = document.querySelector('[data-test-abs]');
+if (absButton) {
+	const form = absButton.closest('form');
+	const output = absButton.parentElement.querySelector('.test-result');
+	const value = (name) => {
+		const field = form.elements.namedItem(name);
+		return field && 'value' in field ? field.value : '';
+	};
+	absButton.hidden = false;
+	absButton.addEventListener('click', async () => {
+		const body = new FormData();
+		body.set('absURL', value('absURL'));
+		body.set('absKey', value('absKey'));
+		absButton.disabled = true;
+		absButton.textContent = 'Testing…';
+		output.className = 'test-result';
+		output.textContent = '';
+		try {
+			const response = await fetch('/settings/test-abs', { method: 'POST', body });
+			const answer = await response.json();
+			output.textContent = answer.message;
+			output.classList.add(answer.ok ? 'ok' : 'bad');
+		} catch {
+			output.textContent = "Couldn't reach Athena.";
+			output.classList.add('bad');
+		} finally {
+			absButton.disabled = false;
+			absButton.textContent = 'Test';
 		}
 	});
 }

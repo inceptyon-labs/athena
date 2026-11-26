@@ -381,9 +381,13 @@ describe('automations', () => {
 		await runner.idle();
 		const id = runner.runs(1)[0]?.id;
 		const results = await (await get(`/automations/runs/${id}`, cookie)).text();
-		expect(results).toContain('Names found');
-		expect(results).toContain('Dune');
-		expect(results).toContain('Chapters break differently');
+		expect(results).toContain('Checked 3 books with an ASIN at ');
+		expect(results).toContain('1 can be renamed, 1 can’t (why below)');
+		expect(results).toContain('Can be renamed');
+		expect(results).toContain('Chapter 1 → Book One: Dune');
+		expect(results).toContain('href="http://abs:13378/item/dune"');
+		expect(results).toContain('Chapters don’t line up');
+		expect(results).toContain('Audible’s chapter 2 starts 3m 20s earlier than this book’s.');
 		expect(results).toContain('Nothing was changed.');
 	});
 
@@ -423,6 +427,30 @@ describe('automations', () => {
 		expect(await (await get('/automations', cookie)).text()).toContain('On: each hour');
 		await post('/automations/chapter-names/auto', {}, cookie);
 		expect(live.autoJobs).toEqual([]);
+	});
+
+	test('Test signs in to Audiobookshelf with what was typed, before saving', async () => {
+		const { app, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const test = async (fields: Record<string, string>) => {
+			const body = new FormData();
+			for (const [key, value] of Object.entries(fields)) body.set(key, value);
+			const response = await app.request('http://athena:8800/settings/test-abs', {
+				method: 'POST',
+				headers: { Cookie: cookie, Origin: 'http://athena:8800', Host: 'athena:8800' },
+				body,
+			});
+			return (await response.json()) as { ok: boolean; message: string };
+		};
+		expect(await test({ absURL: 'http://abs:13378', absKey: 'abs-key' })).toEqual({
+			ok: true,
+			message: 'Signed in as jason, who can update books. Book libraries: Books (4 books).',
+		});
+		expect(await test({ absURL: 'http://abs:13378', absKey: 'wrong' })).toEqual({
+			ok: false,
+			message: 'Audiobookshelf turned the API key down.',
+		});
+		expect((await test({ absURL: 'abs.local', absKey: 'abs-key' })).ok).toBe(false);
 	});
 
 	test("a friend can't open automations or start a job, and a bad address is turned down", async () => {
