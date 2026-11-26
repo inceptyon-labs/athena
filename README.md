@@ -244,7 +244,7 @@ The web page is at `/`; Ithaca uses the two routes below.
 `GET /healthz` returns `{ ok, ready, model, provider, jev, service: "athena", server, serverTokens }`. `ready` is false until a Plex
 server is chosen and an AI model or a TypeSafe key is set up, `provider` is where what the viewer types goes
 (`anthropic`, `openai`, `gemini`, `xai`, `deepseek` or `local`), `jev` says whether library picks go to Jev, `service`
-is how Ithaca recognises Athena on port 8800, `server` is the machine identifier of the Plex server Athena checks
+is how Ithaca recognizes Athena on port 8800, `server` is the machine identifier of the Plex server Athena checks
 sign-ins against (null without one), and `serverTokens` says whether a viewer's token for that server is enough
 (false until the owner has signed in to the web page with this version).
 

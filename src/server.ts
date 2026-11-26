@@ -58,7 +58,7 @@ export function createApp(deps: Deps) {
 		return { outcome: await ai.pick(req), by: ai.by };
 	}
 
-	// `service` is how Ithaca recognises Athena when it looks for it on the Plex server's address, `server` is the Plex
+	// `service` is how Ithaca recognizes Athena when it looks for it on the Plex server's address, `server` is the Plex
 	// server whose token Ithaca sends, `serverTokens` says that token is enough for anyone it is shared with (without it,
 	// only the owner's works, being their account token), and `provider` is where what the viewer types goes.
 	app.get('/healthz', async (c) => {
