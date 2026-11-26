@@ -917,62 +917,74 @@ export function mountWeb(app: Hono, web: Web) {
 							<div class="table-wrap">
 								<table>
 									<tbody>
-										{group.map((item) => (
-											<tr>
-												<td class="request">
-													{live.abs ? (
-														<a href={`${live.abs.url}/item/${encodeURIComponent(item.item)}`} target="_blank" rel="noreferrer">
-															{item.title}
-														</a>
-													) : (
-														item.title
-													)}
-												</td>
-												<td class="answer">
-													{item.detail}
-													{Array.isArray(item.after) && (item.after as Heard[]).some((chapter) => 'heard' in chapter) && (
-														<Proposal before={item.before as string[]} after={item.after as Heard[]} />
-													)}
-												</td>
-												{next?.from === outcome.id && (
-													<td class="num">
-														<form method="post" action={`/automations/runs/${run.id}/next`}>
-															<input type="hidden" name="item" value={item.item} />
-															<button type="submit" class="secondary small" disabled={busy}>
-																{next.verb}
-															</button>
-														</form>
-													</td>
-												)}
-												{job?.approvable?.includes(outcome.id) && (
-													<td class="num">
-														<form method="post" action={`/automations/runs/${run.id}/decide`} class="decide">
-															<input type="hidden" name="item" value={item.item} />
-															<button type="submit" name="approve" value="1" class="primary small">
-																Approve
-															</button>
-															<button type="submit" name="approve" value="0" class="secondary small">
-																Reject
-															</button>
-														</form>
-													</td>
-												)}
-												{job?.undoable?.includes(outcome.id) && (
-													<td class="num">
-														{item.undone ? (
-															<span class="kind">Undone</span>
-														) : (
-															<form method="post" action={`/automations/runs/${run.id}/undo`}>
-																<input type="hidden" name="item" value={item.item} />
-																<button type="submit" class="secondary small">
-																	Undo
-																</button>
-															</form>
+										{group.map((item) => {
+											const heard = Array.isArray(item.after) && (item.after as Heard[]).some((chapter) => 'heard' in chapter);
+											const columns =
+												2 +
+												(next?.from === outcome.id ? 1 : 0) +
+												(job?.approvable?.includes(outcome.id) ? 1 : 0) +
+												(job?.undoable?.includes(outcome.id) ? 1 : 0);
+											return (
+												<>
+													<tr class={heard ? 'has-proposal' : undefined}>
+														<td class="request">
+															{live.abs ? (
+																<a href={`${live.abs.url}/item/${encodeURIComponent(item.item)}`} target="_blank" rel="noreferrer">
+																	{item.title}
+																</a>
+															) : (
+																item.title
+															)}
+														</td>
+														<td class="answer">{item.detail}</td>
+														{next?.from === outcome.id && (
+															<td class="num">
+																<form method="post" action={`/automations/runs/${run.id}/next`}>
+																	<input type="hidden" name="item" value={item.item} />
+																	<button type="submit" class="secondary small" disabled={busy}>
+																		{next.verb}
+																	</button>
+																</form>
+															</td>
 														)}
-													</td>
-												)}
-											</tr>
-										))}
+														{job?.approvable?.includes(outcome.id) && (
+															<td class="num">
+																<form method="post" action={`/automations/runs/${run.id}/decide`} class="decide">
+																	<input type="hidden" name="item" value={item.item} />
+																	<button type="submit" name="approve" value="1" class="primary small">
+																		Approve
+																	</button>
+																	<button type="submit" name="approve" value="0" class="secondary small">
+																		Reject
+																	</button>
+																</form>
+															</td>
+														)}
+														{job?.undoable?.includes(outcome.id) && (
+															<td class="num">
+																{item.undone ? (
+																	<span class="kind">Undone</span>
+																) : (
+																	<form method="post" action={`/automations/runs/${run.id}/undo`}>
+																		<input type="hidden" name="item" value={item.item} />
+																		<button type="submit" class="secondary small">
+																			Undo
+																		</button>
+																	</form>
+																)}
+															</td>
+														)}
+													</tr>
+													{heard && (
+														<tr class="proposal-row">
+															<td colspan={columns}>
+																<Proposal before={item.before as string[]} after={item.after as Heard[]} />
+															</td>
+														</tr>
+													)}
+												</>
+											);
+										})}
 									</tbody>
 								</table>
 							</div>
@@ -1531,8 +1543,8 @@ export function mountWeb(app: Hono, web: Web) {
 					<span class="hint">
 						For Titles from the audio, which reads the first seconds of each chapter.{' '}
 						{model
-							? 'Whisper is free and runs here; ElevenLabs is more accurate with names, at $0.20 an hour of audio (about 3¢ for a book of 40 chapters).'
-							: 'ElevenLabs costs $0.20 an hour of audio: about 3¢ for a book of 40 chapters.'}
+							? 'Whisper is free and runs here; ElevenLabs costs $0.20 an hour of audio (about 5¢ for a book of 40 chapters).'
+							: 'ElevenLabs costs $0.20 an hour of audio: about 5¢ for a book of 40 chapters.'}
 						{!hasFfmpeg() && ' Reading the audio needs the speech image, which has ffmpeg: build Athena with ATHENA_TARGET=speech.'}
 					</span>
 				</label>

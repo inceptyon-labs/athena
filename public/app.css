@@ -540,8 +540,22 @@ form.decide {
 	justify-content: flex-end;
 }
 
-details.proposal {
-	margin-top: 8px;
+/* The chapters fold out under the book's row, across the whole table. */
+tr.has-proposal td {
+	border-bottom: 0;
+}
+
+tr.proposal-row td {
+	padding-top: 0;
+}
+
+details.proposal table td:first-child,
+details.proposal table th:first-child {
+	white-space: nowrap;
+}
+
+details.proposal table td:nth-child(2) {
+	min-width: 12em;
 }
 
 details.proposal summary {

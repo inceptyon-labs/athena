@@ -112,7 +112,7 @@ turns them into text, and has the AI model you chose for Describe It write the t
 
 Speech to text is your choice in Settings:
 
-- **ElevenLabs Scribe**, with an ElevenLabs API key: $0.20 an hour of audio, billed by the second, so about 3¢ for a
+- **ElevenLabs Scribe**, with an ElevenLabs API key: $0.20 an hour of audio, billed by the second, so about 5¢ for a
   book of 40 chapters. Only the chapter openings are sent.
 - **Whisper on this server**, free, with whisper.cpp. Only the speech image has it.
 
