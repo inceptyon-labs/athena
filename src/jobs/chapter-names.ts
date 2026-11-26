@@ -1,6 +1,7 @@
-import type { AbsBook, AbsChapter } from '../abs';
-import { isCredits, isNumbered, match, type Outcome } from '../chapters';
+import type { AbsBook, AbsChapter, Audiobookshelf } from '../abs';
+import { isNumbered, match, type Outcome } from '../chapters';
 import type { Job, JobContext } from '../jobs';
+import { AUDIBLE_REGIONS } from '../settings';
 
 /** How many books are checked at once: each is one or two requests, and the lookups go on to Audnexus. */
 const AT_ONCE = 4;
@@ -19,7 +20,7 @@ export const chapterNames: Job = {
 	id: 'chapter-names',
 	title: 'Chapter names',
 	summary:
-		"Finds audiobooks whose chapters are only numbered, like “Chapter 1”, and names them from Audible when Audible's chapters line up with the book's. Only titles change.",
+		"Finds audiobooks whose chapters are only numbered, like “Chapter 1”, and names them from Audible when Audible's chapters line up with the book's, trying the other Audible stores when yours has nothing that fits. Only titles change.",
 	outcomes: [
 		{
 			id: 'renamed',
@@ -66,7 +67,7 @@ export const chapterNames: Job = {
 		{
 			id: 'notFound',
 			label: 'Not on Audible',
-			note: 'Audible has no chapter list for the ASIN Audiobookshelf has for these. Open the book to check its ASIN.',
+			note: 'No Audible store has a chapter list for the ASIN Audiobookshelf has for these. Open the book to check its ASIN.',
 			action: 'Open the book and Match it again to check its ASIN. If the ASIN is right, wait for titles read from the audio.',
 		},
 		{
@@ -217,22 +218,67 @@ async function check(ctx: JobContext, listed: AbsBook): Promise<boolean> {
 	const book = await ctx.abs.book(listed.id);
 	const chapters = book.chapters;
 	if (chapters.length < 2 || !chapters.every((chapter) => isNumbered(chapter.title, book.title))) return true;
-	const audible = await ctx.abs.audibleChapters(book.asin ?? listed.asin ?? '', ctx.region);
-	const outcome = match(audible, chapters, book.duration, book.title);
+	const { outcome, store, missed } = await lookUp(ctx.abs, book.asin ?? listed.asin ?? '', ctx.region, book, ctx.signal);
 	const before = chapters.map((chapter) => chapter.title);
+	const unasked = missed.length ? ` ${missed.map(storeName).join(', ')} didn't answer, so the next run asks again.` : '';
+	const detail = `${store === ctx.region ? '' : `${storeName(store)}: `}${describe(outcome, before)}${outcome.kind === 'ready' ? '' : unasked}`;
 	if (outcome.kind !== 'ready' || ctx.dryRun) {
 		ctx.record({
 			item: book.id,
 			title: book.title,
 			outcome: outcome.kind,
-			detail: describe(outcome, before),
+			detail,
 			before,
 			...(outcome.kind === 'ready' ? { after: outcome.chapters } : {}),
 		});
-		return outcome.kind !== 'ready';
+		// A store that didn't answer might have fit: not settled until every store has.
+		return outcome.kind !== 'ready' && missed.length === 0;
 	}
 
-	return save(ctx, book, chapters, outcome.chapters, describe(outcome, before));
+	return save(ctx, book, chapters, outcome.chapters, detail);
+}
+
+/** How close a store came when none fit: the same recording split elsewhere says more than an ASIN it doesn't know. */
+const CLOSENESS: Outcome['kind'][] = ['ready', 'marksDiffer', 'noNames', 'lengthDiffers', 'notFound'];
+
+/** The chosen store first, then the UK and Canada, likeliest to sell the same English edition, then the rest. */
+export function storeOrder(chosen: string): string[] {
+	return [...new Set([chosen, 'uk', 'ca', ...AUDIBLE_REGIONS.map((region) => region.id)])];
+}
+
+const storeName = (id: string) => `Audible ${id.toUpperCase()}`;
+
+/**
+ * Audible's fit for a book, from the chosen store or, when it has nothing that lines up, the first other store that
+ * does. When none fits, the closest answer and the store that gave it, and the stores not asked: those whose lookup
+ * failed, and the rest once Stop was pressed. A lookup that fails in the chosen store throws.
+ */
+export async function lookUp(
+	abs: Audiobookshelf,
+	asin: string,
+	chosen: string,
+	book: AbsBook,
+	signal?: AbortSignal,
+): Promise<{ outcome: Outcome; store: string; missed: string[] }> {
+	let best: { outcome: Outcome; store: string } | null = null;
+	const missed: string[] = [];
+	for (const store of storeOrder(chosen)) {
+		if (best && signal?.aborted) {
+			missed.push(store);
+			continue;
+		}
+		let outcome: Outcome;
+		try {
+			outcome = match(await abs.audibleChapters(asin, store), book.chapters, book.duration, book.title);
+		} catch (error) {
+			if (store === chosen) throw error;
+			missed.push(store);
+			continue;
+		}
+		if (outcome.kind === 'ready') return { outcome, store, missed };
+		if (!best || CLOSENESS.indexOf(outcome.kind) < CLOSENESS.indexOf(best.outcome.kind)) best = { outcome, store };
+	}
+	return { ...(best ?? { outcome: { kind: 'notFound' }, store: chosen }), missed };
 }
 
 /** What the run log says about a book, in a line. */
@@ -250,7 +296,7 @@ function describe(outcome: Outcome, before: string[]): string {
 			if (!outcome.off) return `Audible has ${outcome.audible} chapters; this book has ${outcome.book}.`;
 			return `Audible’s chapter ${outcome.off.chapter} starts ${length(Math.abs(outcome.off.seconds))} ${outcome.off.seconds > 0 ? 'later' : 'earlier'} than this book’s.`;
 		case 'notFound':
-			return 'Audible has no chapter list for its ASIN.';
+			return 'No Audible store has a chapter list for its ASIN.';
 	}
 }
 

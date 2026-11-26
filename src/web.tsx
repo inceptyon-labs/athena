@@ -1248,7 +1248,10 @@ export function mountWeb(app: Hono, web: Web) {
 									</option>
 								))}
 							</select>
-							<span class="hint">Where chapter names are looked up, by each book's ASIN.</span>
+							<span class="hint">
+								Where chapter names are looked up first, by each book's ASIN. The other stores are tried when it has
+								nothing that fits, and the results say which one matched.
+							</span>
 						</label>
 						<div class="test">
 							<button type="button" class="secondary" data-test-abs hidden>

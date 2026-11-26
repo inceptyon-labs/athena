@@ -163,6 +163,83 @@ describe('renaming, Undo and the schedule', () => {
 		expect(runner.runs()[0]?.counts).toEqual({});
 	});
 
+	test("another Audible store names a book the chosen one can't, and the log says which", async () => {
+		const base = fakeAbs();
+		const asked: string[] = [];
+		const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+			const target = new URL(String(url));
+			if (target.pathname === '/api/search/chapters' && target.searchParams.get('asin') === 'B002') {
+				const region = target.searchParams.get('region') ?? '';
+				asked.push(region);
+				if (region === 'ca')
+					return Response.json({
+						chapters: [
+							{ startOffsetMs: 0, lengthMs: 500_000, title: 'Volume I' },
+							{ startOffsetMs: 500_000, lengthMs: 500_000, title: 'Volume II' },
+						],
+						runtimeLengthMs: 1_000_000,
+					});
+				if (region === 'uk') throw new Error('Audnexus is down.');
+			}
+			return base.fetcher(url, init);
+		}) as typeof fetch;
+		const abs = new Audiobookshelf('http://abs:13378', 'abs-key', fetcher);
+		const runner = new Runner(':memory:', JOBS, () => ({ abs, region: 'us', auto: () => false }));
+		const id = runner.start('chapter-names', { dryRun: true }) as number;
+		await runner.idle();
+		expect(asked).toEqual(['us', 'uk', 'ca']);
+		const emma = runner.items(id).find((item) => item.item === 'emma');
+		expect(emma?.outcome).toBe('ready');
+		expect(emma?.detail).toStartWith('Audible CA: Chapter 1 → Volume I');
+		expect(runner.items(id).find((item) => item.item === 'dune')?.detail).toStartWith('Chapter 1 → Book One: Dune');
+	});
+
+	test('a store that failed keeps the book unsettled, so the next scheduled run asks again', async () => {
+		const base = fakeAbs();
+		let down = true;
+		const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+			const target = new URL(String(url));
+			if (target.pathname === '/api/search/chapters' && target.searchParams.get('asin') === 'B002' && target.searchParams.get('region') === 'uk') {
+				if (down) throw new Error('Audnexus is down.');
+				return Response.json({
+					chapters: [
+						{ startOffsetMs: 0, lengthMs: 500_000, title: 'Volume I' },
+						{ startOffsetMs: 500_000, lengthMs: 500_000, title: 'Volume II' },
+					],
+					runtimeLengthMs: 1_000_000,
+				});
+			}
+			return base.fetcher(url, init);
+		}) as typeof fetch;
+		const abs = new Audiobookshelf('http://abs:13378', 'abs-key', fetcher);
+		let at = 1_000_000;
+		const runner = new Runner(':memory:', JOBS, () => ({ abs, region: 'us', auto: () => true }), () => at);
+		runner.tick();
+		await runner.idle();
+		const first = runner.items(runner.runs()[0]?.id ?? 0).find((item) => item.item === 'emma');
+		expect(first?.outcome).toBe('marksDiffer');
+		expect(first?.detail).toContain("Audible UK didn't answer");
+
+		down = false;
+		at += EVERY;
+		runner.tick();
+		await runner.idle();
+		expect(runner.runs()[0]?.counts).toEqual({ renamed: 1 });
+		expect(base.books.emma?.media.chapters.map((chapter) => chapter.title)).toEqual(['Volume I', 'Volume II']);
+	});
+
+	test('a book no store fits is logged with the closest answer, after every store was asked', async () => {
+		const { abs, lookups } = fakeAbs();
+		const runner = new Runner(':memory:', JOBS, () => ({ abs, region: 'uk', auto: () => false }));
+		const id = runner.start('chapter-names', { dryRun: true }) as number;
+		await runner.idle();
+		// Dune fits in the first store asked; Emma is asked of all ten.
+		expect(lookups()).toBe(1 + 10);
+		const emma = runner.items(id).find((item) => item.item === 'emma');
+		expect(emma?.outcome).toBe('marksDiffer');
+		expect(emma?.detail).toStartWith('Audible’s chapter 2 starts');
+	});
+
 	test('a save whose answer is lost is settled by reading the book back', async () => {
 		const base = fakeAbs();
 		const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
