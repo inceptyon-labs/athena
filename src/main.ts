@@ -12,7 +12,7 @@ import { type Door, mountWeb } from './web';
 process.umask(0o077);
 
 const port = Number(process.env.PORT ?? 8800);
-// Owner pages open only on this port, from the home network: publish it there, never through a proxy or tunnel.
+// Settings and Automations open only on this port, from the home network: publish it there, never through a proxy.
 const adminPort = Number(process.env.ADMIN_PORT ?? 8801);
 const data = process.env.ATHENA_DATA || './data';
 const live = new Live(new Settings(data));
@@ -44,5 +44,5 @@ for (const [at, surface] of [
 		maxRequestBodySize: 4 * 1024 * 1024,
 	});
 log(
-	`athena listening on :${port}, owner pages on :${adminPort}, with ${live.provider} ${live.model || '(no model)'}${live.jevKey ? ', library picks by Jev' : ''}`,
+	`athena listening on :${port}, settings on :${adminPort}, with ${live.provider} ${live.model || '(no model)'}${live.jevKey ? ', library picks by Jev' : ''}`,
 );

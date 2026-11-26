@@ -37,7 +37,7 @@ export class Live {
 	autoJobs: string[] = [];
 	/** Speech to text for Titles from the audio: null until chosen and set up. */
 	speech: Speech | null = null;
-	/** Owner pages open from anywhere, not only on the admin port at home. */
+	/** Settings and Automations open from anywhere, not only on the admin port at home. */
 	ownerAnywhere = false;
 	readonly plexTV: PlexTV;
 	private where: string | null = null;

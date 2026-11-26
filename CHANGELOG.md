@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Balanced and Best tiers, prices per Describe It, and a Test button.
 - Friends away from home: a public address, an `ithaca://` share link and QR code, a per-person daily limit.
 - Docker image workflow, Unraid template and Compose file.
-- Owner pages (Settings, Automations, Share and setup) on their own port, 8801, which opens only from the home
-  network, so a proxy or tunnel for friends puts only Describe It on the internet. Settings → Owner pages from
-  anywhere puts them back on 8800 behind Plex sign-in.
+- Settings, Automations and setup on their own port, 8801, which opens them only from the home network, so a proxy
+  or tunnel for friends never puts the keys on the internet; the owner's status page and Share open anywhere.
+  Settings → Settings from anywhere opens them on 8800 too, behind Plex sign-in.
 - Each API key can be read from a file, as `<NAME>_FILE`, for Docker secrets or a vault's agent.
 
 ### Fixed

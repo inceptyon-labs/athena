@@ -44,8 +44,8 @@ export type Stored = {
 	speech?: SpeechChoice | null;
 	elevenlabsKey?: string | null;
 	/**
-	 * Owner pages (Settings, Automations, Share) also open on the public port and from the internet, behind Plex
-	 * sign-in. Off: only on the admin port, from the home network.
+	 * Settings and Automations also open on the public port and from the internet, behind Plex sign-in. Off: only on the
+	 * admin port, from the home network.
 	 */
 	ownerAnywhere?: boolean | null;
 } & Partial<Record<KeyName, string | null>>;

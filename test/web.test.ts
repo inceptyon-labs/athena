@@ -176,19 +176,20 @@ describe('sign in with Plex', () => {
 	});
 });
 
-describe('owner pages stay home', () => {
+describe('settings stay home', () => {
 	const ready = { server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY, dailyLimit: 5 };
 	/** A request from the internet through a Cloudflare tunnel to the public port. */
 	const TUNNEL: Door = { surface: 'public', peer: '172.18.0.4' };
 	const CLOUDFLARE = { 'Cf-Connecting-IP': '203.0.113.7', 'X-Forwarded-For': '203.0.113.7' };
 
-	test('through a tunnel, the owner gets where Settings are, saving changes nothing, and friends still get their page', async () => {
+	test('through a tunnel, the owner gets the status page and Share but not Settings, saving changes nothing, and friends get their page', async () => {
 		const { live, get, post, signIn } = athena(ready);
 		const cookie = await signIn('owner-token');
 		const settings = await get('/settings', cookie, TUNNEL, CLOUDFLARE);
 		expect(settings.status).toBe(403);
 		expect(await settings.text()).toContain('Settings are on your home network');
-		expect((await get('/', cookie, TUNNEL, CLOUDFLARE)).status).toBe(403);
+		expect(await (await get('/', cookie, TUNNEL, CLOUDFLARE)).text()).toContain('Answering for Uranus');
+		expect((await get('/share', cookie, TUNNEL, CLOUDFLARE)).status).toBe(200);
 		expect((await get('/automations', cookie, TUNNEL, CLOUDFLARE)).status).toBe(403);
 		const saved = await post('/settings', { server: 'machine-1', anthropicKey: 'sk-ant-new' }, cookie, 'http://athena:8800', TUNNEL, CLOUDFLARE);
 		expect(saved.status).toBe(403);
@@ -219,11 +220,12 @@ describe('owner pages stay home', () => {
 		const { live, get, post, signIn } = athena();
 		const cookie = await signIn('owner-token');
 		expect(await (await get('/settings', cookie, TUNNEL, CLOUDFLARE)).text()).toContain('Set Athena up from home');
+		expect(await (await get('/', cookie, TUNNEL, CLOUDFLARE)).text()).toContain('Set Athena up from home');
 		await post('/settings', { server: 'machine-1', anthropicKey: KEY }, cookie, 'http://athena:8800', TUNNEL, CLOUDFLARE);
 		expect(live.effective.server).toBeNull();
 	});
 
-	test('with Owner pages from anywhere on, they open through the tunnel too', async () => {
+	test('with Settings from anywhere on, they open through the tunnel too', async () => {
 		const { live, get, post, signIn } = athena(ready);
 		const cookie = await signIn('owner-token');
 		expect(await (await get('/settings', cookie)).text()).toContain('name="_token"');

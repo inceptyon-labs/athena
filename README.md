@@ -83,11 +83,13 @@ or logged. The request log is `athena.db` in the same folder and keeps a little 
 
 ### Keeping keys safe
 
-- **Owner pages stay home.** Athena listens on two ports. 8800 answers Ithaca and friends; 8801 has Settings,
-  Automations and Share, and opens them only to a home-network address (private ranges, and the 100.64.0.0/10 range
-  Tailscale uses). Put a reverse proxy or tunnel in front of 8800 only. Port 8801 also turns away a request a proxy
-  says came from the internet, in case it's published by mistake. To change settings from away, use a VPN home, or
-  turn on Settings → Owner pages from anywhere, which puts them back on 8800 behind Plex sign-in.
+- **Settings stay home.** Athena listens on two ports. 8800 answers Ithaca and friends, and shows you the status page
+  and Share; 8801 also has Settings and Automations, and opens them only to a home-network address (private ranges,
+  and the 100.64.0.0/10 range Tailscale uses). Put a reverse proxy or tunnel in front of 8800 only. Your public address
+  always goes through the internet, even from home, so open Settings at the home address and port 8801. Port 8801 also
+  turns away a request a proxy says came from the internet, in case it's published by mistake. To change settings
+  from away, use a VPN home, or turn on Settings → Settings from anywhere, which opens them on 8800 behind Plex
+  sign-in.
 - **Keys in the browser** go into `settings.json`, which isn't encrypted: anyone who can read the data folder, or a
   backup of it, can read them. Whoever has root on the machine can read them however they're stored.
 - **Keys from a vault or Docker secrets**: each key variable below can name a file instead, as `<NAME>_FILE` (such as

@@ -35,8 +35,9 @@ import type { Entry, Usage } from './usage';
 /**
  * The web UI: sign in with Plex, settings for the Plex server's owner, the status page, and for everyone else with
  * access, their own use today. Athena listens on two ports. The public one (8800) is what Ithaca finds at home and what
- * a reverse proxy or tunnel puts on the internet; the admin one (8801) is published only on the home network. Owner
- * pages open only on the admin port from a home address, unless the owner turns on `ownerAnywhere`.
+ * a reverse proxy or tunnel puts on the internet; the admin one (8801) is published only on the home network. Settings,
+ * Automations and setup, which hold the keys and change things, open only on the admin port from a home address,
+ * unless the owner turns on `ownerAnywhere`; the owner's status page and Share open anywhere.
  */
 export interface Web {
 	live: Live;
@@ -274,12 +275,15 @@ export function mountWeb(app: Hono, web: Web) {
 		return token.length === expected.length && timingSafeEqual(token, expected);
 	}
 
-	/** Whether owner pages may open for this request: on the admin port from home, or anywhere once the owner allows it. */
+	/** Whether Settings and Automations may open for this request: on the admin port from home, or anywhere once allowed. */
 	const ownerHere = (c: Context) => live.ownerAnywhere || (door(c).surface === 'admin' && fromHome(c));
 
+	/** The pages that hold the keys or change things. The status page and Share only show. */
+	const homeOnly = (c: Context) => /^\/(settings|automations)(\/|$)/.test(new URL(c.req.url).pathname);
+
 	/**
-	 * Where the owner goes instead of an owner page here: the admin port, for a page opened at home straight on the
-	 * public port (an old bookmark), or a note saying where Settings are.
+	 * Where the owner goes instead of Settings or Automations here: the admin port, for a page opened at home straight on
+	 * the public port (an old bookmark), or a note saying where they are.
 	 */
 	function away(c: Context, s: Session, setup: boolean) {
 		const direct = forwardedFor((name) => c.req.header(name)).length === 0 && !c.req.header('X-Forwarded-Host');
@@ -287,22 +291,28 @@ export function mountWeb(app: Hono, web: Web) {
 		if (fromHome(c)) {
 			try {
 				const url = new URL(c.req.url);
-				admin = `http://${new URL(`http://${c.req.header('Host') ?? url.host}`).hostname}:${adminPort}`;
-				if (c.req.method === 'GET' && direct && door(c).surface === 'public') return c.redirect(`${admin}${url.pathname}${url.search}`, 303);
+				admin = `http://${new URL(`http://${c.req.header('Host') ?? url.host}`).hostname}:${adminPort}${url.pathname}`;
+				if (c.req.method === 'GET' && direct && door(c).surface === 'public') return c.redirect(`${admin}${url.search}`, 303);
 			} catch {}
 		}
 		return c.html(
 			<Note title={setup ? 'Set Athena up from home' : 'Settings are on your home network'} signedIn={s}>
 				<p>
-					{setup ? 'Setting Athena up' : 'Settings, Automations and Share'} {setup ? 'opens' : 'open'} only from your home
+					{setup ? 'Setting Athena up' : 'Settings and Automations'} {setup ? 'opens' : 'open'} only from your home
 					network, on port {adminPort} of the machine Athena runs on, so nobody can reach your keys from the internet.
+					Your public address always goes through the internet, even from home.
 				</p>
 				{admin && (
 					<p>
-						<a href={`${admin}/`}>Open Athena on port {adminPort}</a>
+						<a href={admin}>Open it on port {adminPort}</a>
 					</p>
 				)}
-				{!setup && <p>To open them from anywhere, turn on Owner pages from anywhere in Settings, from home.</p>}
+				{!setup && (
+					<p>
+						<a href="/">Status</a> and <a href="/share">Share</a> open from anywhere. To open Settings from anywhere too,
+						turn on Settings from anywhere, from home.
+					</p>
+				)}
 			</Note>,
 			403,
 		);
@@ -349,7 +359,7 @@ export function mountWeb(app: Hono, web: Web) {
 				live.settings.save({ ownerId: s.accountId, ownerToken: s.token });
 				live.refresh();
 			}
-			if ((role.role === 'owner' || role.role === 'setup') && !ownerHere(c))
+			if ((role.role === 'setup' || (role.role === 'owner' && homeOnly(c))) && !ownerHere(c))
 				return { page: away(c, s, role.role === 'setup'), away: true };
 			return { s, ...role };
 		} catch (error) {
@@ -1385,15 +1395,16 @@ export function mountWeb(app: Hono, web: Web) {
 							</span>
 						</label>
 						<div class="field" id="ownerAnywhere">
-							<span class="label">Owner pages from anywhere</span>
+							<span class="label">Settings from anywhere</span>
 							<label class="remove">
-								<input type="checkbox" name="ownerAnywhere" value="1" checked={effective.ownerAnywhere} /> Open Settings,
-								Automations and Share from outside home too
+								<input type="checkbox" name="ownerAnywhere" value="1" checked={effective.ownerAnywhere} /> Open Settings and
+								Automations from outside home too
 							</label>
 							<span class="hint">
-								Off, they open only from your home network, on port {adminPort}, and the public address answers only
-								Ithaca, so nobody on the internet can reach your keys. On, they also open on port 8800 and at the public
-								address, behind Plex sign-in.
+								Off, they open only from your home network, on port {adminPort}, so nobody on the internet can reach your
+								keys; the status page and Share open anywhere. On, Settings and Automations also open on port 8800 and at
+								the public address, behind Plex sign-in. The public address always goes through the internet, even from
+								home.
 							</span>
 						</div>
 					</fieldset>
