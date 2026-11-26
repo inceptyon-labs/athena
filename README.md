@@ -76,6 +76,20 @@ they type goes on to the provider you chose (unless it's a local model).
 Settings are kept in the data folder, `settings.json`, readable only by Athena; API keys are never shown back in full
 or logged. The request log is `athena.db` in the same folder and keeps a little over a year.
 
+## Automations (Audiobookshelf)
+
+Optional, for people who also run [Audiobookshelf](https://www.audiobookshelf.org) (and use
+[Siren](https://inceptyon.io/siren/support), or any other Audiobookshelf app). Leave it out and Athena is only Ithaca's
+Describe It, with nothing else to set up.
+
+Under Settings → Audiobookshelf, enter its address (`http://192.168.1.10:13378`) and an API key made in Audiobookshelf
+under Settings → API Keys, for a user who can update books. An **Automations** page then appears. Its first job,
+**Chapter names**, finds books whose chapters are only numbered ("Chapter 1", "01", "Track 3") and looks up Audible's
+names for them by ASIN, through Audiobookshelf. It takes them only when Audible has as many chapters as the book, each
+starting within 2 seconds of the book's, so only titles would change, never where chapters start. For now it only
+checks: each run lists what it would rename and changes nothing. Jobs run one at a time in the background and never
+slow Describe It; their log is `jobs.db` in the data folder.
+
 ## Environment variables
 
 All optional. The ones that set something in Settings win over what's saved there, and Settings shows that field
@@ -92,6 +106,8 @@ locked.
 | `XAI_API_KEY` | xAI's API key, for Grok |
 | `DEEPSEEK_API_KEY` | DeepSeek's API key |
 | `TYPESAFE_API_KEY` | The TypeSafe key for Jev, which makes the library picks ([How it picks](#how-it-picks)) |
+| `ABS_URL` | Audiobookshelf's address, for [automations](#automations-audiobookshelf) |
+| `ABS_API_KEY` | An Audiobookshelf API key from a user who can update books |
 | `TZ` | The time zone that "today" and "this month" follow on the status page. `America/New_York` by default |
 | `PUID`, `PGID` | The user and group Athena runs as, and gives the data folder to. 99 and 100 (Unraid's nobody:users) by default |
 | `ATHENA_BIND` | Building from source only, in `.env`: this machine's home-network address, which Compose publishes Athena on |
@@ -255,7 +271,7 @@ with no AI model to fall back on, fails, or when plex.tv can't be reached to che
 
 ```bash
 bun install
-bun run start      # :8800, settings and the request log in ./data
+bun run start      # :8800, settings, the request log and the job log in ./data
 bun test
 bun run check
 ```

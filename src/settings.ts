@@ -32,6 +32,11 @@ export type Stored = {
 	 * through it, so a friend's Ithaca sends only its token for this server. Never shown or logged.
 	 */
 	ownerToken?: string | null;
+	/** Audiobookshelf, for automations: its address and an API key from a user who can update books. */
+	absURL?: string | null;
+	absKey?: string | null;
+	/** Audible's store for chapter lookups, such as `us` or `uk`. */
+	audibleRegion?: string | null;
 } & Partial<Record<KeyName, string | null>>;
 
 /** The settings Athena runs with: an environment variable wins over what was saved. */
@@ -49,11 +54,28 @@ export type Effective = {
 	ownerId: string | null;
 	ownerToken: string | null;
 	clientId: string;
+	absURL: string | null;
+	absKey: string | null;
+	audibleRegion: string;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
-	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | KeyName, string>>;
+	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | 'absURL' | 'absKey' | KeyName, string>>;
 } & Record<KeyName, string | null>;
 
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
+
+/** Audible's stores, as Audnexus names them, for chapter lookups. */
+export const AUDIBLE_REGIONS = [
+	{ id: 'us', name: 'United States' },
+	{ id: 'ca', name: 'Canada' },
+	{ id: 'uk', name: 'United Kingdom' },
+	{ id: 'au', name: 'Australia' },
+	{ id: 'de', name: 'Germany' },
+	{ id: 'fr', name: 'France' },
+	{ id: 'it', name: 'Italy' },
+	{ id: 'es', name: 'Spain' },
+	{ id: 'in', name: 'India' },
+	{ id: 'jp', name: 'Japan' },
+] as const;
 
 const blank = (value: string | undefined) => (value?.trim() ? value.trim() : null);
 
@@ -90,6 +112,8 @@ export class Settings {
 		const saved = (stored.provider ?? 'anthropic') === provider ? stored.model : null;
 		const fits = saved && (provider === 'local' || models.some((model) => model.id === saved));
 		const typesafeKey = blank(env.TYPESAFE_API_KEY);
+		const absURL = blank(env.ABS_URL)?.replace(/\/+$/, '') ?? null;
+		const absKey = blank(env.ABS_API_KEY);
 		const limit = stored.dailyLimit;
 		const keys = {} as Record<KeyName, string | null>;
 		const keyEnv: Effective['env'] = {};
@@ -114,12 +138,17 @@ export class Settings {
 			ownerId: stored.ownerId ?? null,
 			ownerToken: stored.ownerToken ?? null,
 			clientId: stored.clientId ?? '',
+			absURL: absURL ?? stored.absURL ?? null,
+			absKey: absKey ?? stored.absKey ?? null,
+			audibleRegion: stored.audibleRegion && AUDIBLE_REGIONS.some((region) => region.id === stored.audibleRegion) ? stored.audibleRegion : 'us',
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),
 				...(fromEnv ? { provider: fromEnv.from } : {}),
 				...(envModel ? { model: 'ATHENA_MODEL' } : {}),
 				...keyEnv,
 				...(typesafeKey ? { typesafeKey: 'TYPESAFE_API_KEY' } : {}),
+				...(absURL ? { absURL: 'ABS_URL' } : {}),
+				...(absKey ? { absKey: 'ABS_API_KEY' } : {}),
 			},
 		};
 	}

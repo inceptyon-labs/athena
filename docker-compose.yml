@@ -22,6 +22,8 @@ services:
       XAI_API_KEY: ${XAI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      ABS_URL: ${ABS_URL:-}
+      ABS_API_KEY: ${ABS_API_KEY:-}
     labels:
       net.unraid.docker.webui: "http://[IP]:[PORT:8800]/"
       net.unraid.docker.icon: "https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid-icon.png"

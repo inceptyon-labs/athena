@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { Audiobookshelf } from './abs';
 import { compat } from './compat';
 import { type AI, claude } from './pick';
 import { PlexGate, PlexTV } from './plex';
@@ -28,6 +29,9 @@ export class Live {
 	ownerName: string | null = null;
 	ownerId: string | null = null;
 	ownerToken: string | null = null;
+	/** Null until the owner connects Audiobookshelf; until then no automation runs. */
+	abs: Audiobookshelf | null = null;
+	audibleRegion = 'us';
 	readonly plexTV: PlexTV;
 	private where: string | null = null;
 
@@ -53,6 +57,8 @@ export class Live {
 		this.ownerName = now.ownerName;
 		this.ownerId = now.ownerId;
 		this.ownerToken = now.ownerToken;
+		this.abs = now.absURL && now.absKey ? new Audiobookshelf(now.absURL, now.absKey, this.fetcher) : null;
+		this.audibleRegion = now.audibleRegion;
 		const where = now.plexURL ? `url ${now.plexURL}` : now.server ? `id ${now.server.id}` : null;
 		if (where !== this.where) {
 			this.where = where;

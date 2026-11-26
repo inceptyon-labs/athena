@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { JOBS, Runner } from '../src/jobs';
 import { Live } from '../src/live';
 import { createApp } from '../src/server';
 import { Sessions } from '../src/sessions';
@@ -9,7 +10,7 @@ import { Settings } from '../src/settings';
 import { Usage } from '../src/usage';
 import { qrSVG } from '../src/share';
 import { mountWeb } from '../src/web';
-import { fakePlex } from './helpers';
+import { fakeAbs, fakePlex } from './helpers';
 
 const KEY = 'sk-ant-api03-very-secret-key-wxyz';
 
@@ -34,6 +35,7 @@ const sampleAnswer = () =>
 /** Athena with fake Plex, where the PIN `pin` is approved by whoever `approve` says. */
 function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string, string> = {}) {
 	const plex = fakePlex();
+	const abs = fakeAbs();
 	let approve: string | null = null;
 	const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
 		const path = new URL(String(url)).pathname;
@@ -48,6 +50,7 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		}
 		if (String(url) === 'http://ollama:11434/v1/models') return Response.json({ data: [{ id: 'llama-test:latest' }] });
 		if (String(url) === 'http://ollama:11434/v1/chat/completions') return sampleAnswer();
+		if (String(url).startsWith('http://abs:13378/')) return abs.fetcher(url, init);
 		return plex.fetcher(url, init);
 	}) as typeof fetch;
 	const settings = new Settings(mkdtempSync(join(tmpdir(), 'athena-')), env);
@@ -55,7 +58,8 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 	const live = new Live(settings, fetcher);
 	const usage = new Usage(':memory:');
 	const app = createApp(Object.assign(live, { usage }));
-	mountWeb(app, { live, usage, sessions: new Sessions() });
+	const runner = new Runner(':memory:', JOBS, () => ({ abs: live.abs, region: live.audibleRegion }));
+	mountWeb(app, { live, usage, runner, sessions: new Sessions() });
 
 	const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
 	const post = (path: string, fields: Record<string, string>, cookie = '', origin = 'http://athena:8800') =>
@@ -75,7 +79,7 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		const session = done.headers.getSetCookie().find((cookie) => cookie.startsWith('athena_session='));
 		return session?.split(';')[0] ?? '';
 	}
-	return { app, live, usage, post, get, signIn, setApprove: (token: string | null) => (approve = token) };
+	return { app, live, usage, runner, post, get, signIn, setApprove: (token: string | null) => (approve = token) };
 }
 
 describe('sign in with Plex', () => {
@@ -345,5 +349,62 @@ describe('choosing the AI model', () => {
 			ok: false,
 			message: "The local model's address is an http:// address, such as http://192.168.1.10:11434/v1.",
 		});
+	});
+});
+
+describe('automations', () => {
+	const ready = { server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY };
+
+	test('without Audiobookshelf, nothing about automations shows and Describe It is unchanged', async () => {
+		const { app, get, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		expect(await (await get('/', cookie)).text()).not.toContain('href="/automations"');
+		expect((await get('/automations', cookie)).headers.get('Location')).toBe('/settings#abs');
+		const health = await (await app.request('http://athena:8800/healthz')).json();
+		expect(health.ready).toBe(true);
+	});
+
+	test('the owner connects Audiobookshelf in Settings, then checks chapter names', async () => {
+		const { live, runner, get, post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const saved = await post('/settings', { server: 'machine-1', absURL: 'http://abs:13378/', absKey: 'abs-key', audibleRegion: 'uk' }, cookie);
+		expect(saved.headers.get('Location')).toBe('/settings?saved');
+		expect(live.effective.absURL).toBe('http://abs:13378');
+		expect(live.effective.audibleRegion).toBe('uk');
+		expect(await (await get('/settings', cookie)).text()).not.toContain('abs-key');
+
+		const page = await (await get('/automations', cookie)).text();
+		expect(page).toContain('href="/automations"');
+		expect(page).toContain('As jason at http://abs:13378.');
+		const run = await post('/automations/chapter-names/run', {}, cookie);
+		expect(run.headers.get('Location')).toBe('/automations');
+		await runner.idle();
+		const id = runner.runs(1)[0]?.id;
+		const results = await (await get(`/automations/runs/${id}`, cookie)).text();
+		expect(results).toContain('Names found');
+		expect(results).toContain('Dune');
+		expect(results).toContain('Chapters break differently');
+		expect(results).toContain('Nothing was changed.');
+	});
+
+	test('a check started from another site is refused, and Audiobookshelf alone never makes Describe It ready', async () => {
+		const { app, post, signIn, runner } = athena({ server: { id: 'machine-1', name: 'Uranus' }, absURL: 'http://abs:13378', absKey: 'abs-key' });
+		const cookie = await signIn('owner-token');
+		expect((await post('/automations/chapter-names/run', {}, cookie, 'https://evil.example')).status).toBe(403);
+		expect(runner.runs()).toHaveLength(0);
+		const health = await (await app.request('http://athena:8800/healthz')).json();
+		expect(health.ready).toBe(false);
+	});
+
+	test("a friend can't open automations or start a job, and a bad address is turned down", async () => {
+		const withAbs = { ...ready, absURL: 'http://abs:13378', absKey: 'abs-key' };
+		const { get, post, signIn, runner } = athena(withAbs);
+		const friend = await signIn('friend-token');
+		expect((await get('/automations', friend)).headers.get('Location')).toBe('/');
+		await post('/automations/chapter-names/run', {}, friend);
+		expect(runner.runs()).toHaveLength(0);
+		const owner = await signIn('owner-token');
+		const bad = await post('/settings', { server: 'machine-1', absURL: 'abs.local' }, owner);
+		expect(bad.headers.get('Location')).toBe('/settings?problem=abs');
 	});
 });

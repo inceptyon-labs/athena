@@ -2,7 +2,9 @@ import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { raw } from 'hono/html';
 import type { Child, FC } from 'hono/jsx';
+import { absBase, type AbsUser } from './abs';
 import { listModels } from './compat';
+import type { Run, Runner } from './jobs';
 import { type Live, makeAI } from './live';
 import { warn } from './log';
 import { PickRequest } from './pick';
@@ -20,7 +22,7 @@ import {
 	type ProviderId,
 	providerOf,
 } from './providers';
-import { type Effective, mask } from './settings';
+import { AUDIBLE_REGIONS, type Effective, mask } from './settings';
 import { publicAddress, qrSVG, shareLink } from './share';
 import type { Session, Sessions } from './sessions';
 import type { Entry, Usage } from './usage';
@@ -32,6 +34,7 @@ import type { Entry, Usage } from './usage';
 export interface Web {
 	live: Live;
 	usage: Usage;
+	runner: Runner;
 	sessions: Sessions;
 	now?: () => number;
 }
@@ -111,10 +114,14 @@ function result(entry: Entry) {
 const Layout: FC<{
 	title: string;
 	signedIn?: Session | null;
-	nav?: 'status' | 'share' | 'settings';
+	nav?: 'status' | 'share' | 'settings' | 'automations';
+	/** Shows Automations in the menu: only once Audiobookshelf is connected. */
+	automations?: boolean;
+	/** Reloads the page every so many seconds, while a job runs. */
+	refresh?: number;
 	bare?: boolean;
 	children: Child;
-}> = ({ title, signedIn, nav, bare, children }) => (
+}> = ({ title, signedIn, nav, automations, refresh, bare, children }) => (
 	<>
 		{raw('<!doctype html>')}
 		<html lang="en">
@@ -123,6 +130,7 @@ const Layout: FC<{
 				<meta name="viewport" content="width=device-width, initial-scale=1" />
 				<meta name="color-scheme" content="light dark" />
 				<meta name="robots" content="noindex" />
+				{refresh && <meta http-equiv="refresh" content={String(refresh)} />}
 				<title>{title === 'Athena' ? 'Athena' : `${title} · Athena`}</title>
 				<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 				<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -146,6 +154,11 @@ const Layout: FC<{
 									<a href="/share" aria-current={nav === 'share' ? 'page' : undefined}>
 										Share
 									</a>
+									{automations && (
+										<a href="/automations" aria-current={nav === 'automations' ? 'page' : undefined}>
+											Automations
+										</a>
+									)}
 									<a href="/settings" aria-current={nav === 'settings' ? 'page' : undefined}>
 										Settings
 									</a>
@@ -178,7 +191,7 @@ const Note: FC<{ title: string; children: Child; signedIn?: Session | null }> = 
 );
 
 export function mountWeb(app: Hono, web: Web) {
-	const { live, usage, sessions } = web;
+	const { live, usage, runner, sessions } = web;
 	const now = web.now ?? Date.now;
 
 	const files = ['app.css', 'app.js', 'icon.svg', 'mark.svg', 'favicon-32.png', 'apple-touch-icon.png'];
@@ -444,7 +457,7 @@ export function mountWeb(app: Hono, web: Web) {
 		const people = usage.byPerson();
 		const limit = live.dailyLimit;
 		return c.html(
-			<Layout title="Status" signedIn={s} nav="status">
+			<Layout title="Status" signedIn={s} nav="status" automations={live.abs !== null}>
 				<section class={`state state-${ready.state}`} aria-live="polite">
 					<span class="dot" aria-hidden="true" />
 					<div>
@@ -580,7 +593,7 @@ export function mountWeb(app: Hono, web: Web) {
 		if (role !== 'owner') return c.redirect('/', 303);
 		const address = live.effective.publicURL;
 		return c.html(
-			<Layout title="Share" signedIn={s} nav="share">
+			<Layout title="Share" signedIn={s} nav="share" automations={live.abs !== null}>
 				<div class="page-head">
 					<h1>Share with friends</h1>
 					<p class="lede">
@@ -649,6 +662,214 @@ export function mountWeb(app: Hono, web: Web) {
 		);
 	};
 
+	/** The owner, signed in, or the page to show instead. */
+	async function owner(c: Context) {
+		const found = await who(c);
+		if ('page' in found) return { page: found.page };
+		if (found.role !== 'owner') return { page: c.redirect('/', 303) };
+		return { s: found.s };
+	}
+
+	/** "Names found: 12, Different length: 3" for a run, in the job's order. */
+	function tally(run: Run) {
+		const job = runner.job(run.job);
+		const parts = (job?.outcomes ?? []).flatMap((outcome) =>
+			run.counts[outcome.id] ? [`${outcome.label}: ${run.counts[outcome.id]}`] : [],
+		);
+		return parts.length ? parts.join(', ') : 'Nothing to fix';
+	}
+
+	function status(run: Run) {
+		if (run.status === 'running') return run.total ? `Checking ${run.checked} of ${run.total}` : 'Starting';
+		if (run.status === 'failed') return `Failed: ${run.error ?? 'unknown error'}`;
+		if (run.status === 'stopped') return 'Stopped';
+		return tally(run);
+	}
+
+	app.get('/automations', async (c) => {
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		const abs = live.abs;
+		if (!abs) return c.redirect('/settings#abs', 303);
+		let account: AbsUser | null = null;
+		let unreachable: string | null = null;
+		try {
+			account = await abs.me();
+		} catch (error) {
+			unreachable = error instanceof Error ? error.message : String(error);
+		}
+		const running = runner.running;
+		const runs = runner.runs(20);
+		const problem = RUN_PROBLEMS.get(c.req.query('problem') ?? '') ?? null;
+		return c.html(
+			<Layout title="Automations" signedIn={found.s} nav="automations" automations refresh={running ? 3 : undefined}>
+				<div class="page-head">
+					<h1>Automations</h1>
+					<p class="lede">
+						Jobs that tidy your Audiobookshelf library, run here with the keys kept here. Every app, Siren
+						included, sees what they change.
+					</p>
+				</div>
+				{problem && (
+					<p class="banner error" role="alert">
+						{problem}
+					</p>
+				)}
+				<section class={`state state-${account ? (account.canUpdate ? 'on' : 'partial') : 'off'}`} aria-live="polite">
+					<span class="dot" aria-hidden="true" />
+					<div>
+						<h2>{account ? 'Connected to Audiobookshelf' : "Audiobookshelf isn't answering"}</h2>
+						<p>
+							{account
+								? `As ${account.username} at ${abs.url}.${account.canUpdate ? '' : " This user can't update books, so jobs can only check."}`
+								: unreachable}{' '}
+							<a href="/settings#abs">Settings</a>
+						</p>
+					</div>
+				</section>
+
+				{runner.jobs.map((job) => {
+					const last = runner.runs(1, job.id)[0];
+					const mine = running?.job === job.id;
+					return (
+						<section class="recent job">
+							<h2>{job.title}</h2>
+							<p class="hint">{job.summary}</p>
+							<p>
+								{mine && running
+									? `${status(running)}…`
+									: last
+										? `Last checked ${when(last.started, now())}: ${status(last)}.`
+										: 'Not run yet.'}{' '}
+								{last && !mine && <a href={`/automations/runs/${last.id}`}>See the books</a>}
+							</p>
+							<div class="actions">
+								{mine ? (
+									<form method="post" action="/automations/stop">
+										<button type="submit" class="secondary">
+											Stop
+										</button>
+									</form>
+								) : (
+									<form method="post" action={`/automations/${job.id}/run`}>
+										<button type="submit" class="primary" disabled={running !== null || !account}>
+											Check now
+										</button>
+									</form>
+								)}
+								<span class="hint">For now a check only lists what it would change; it changes nothing.</span>
+							</div>
+						</section>
+					);
+				})}
+
+				{runs.length > 0 && (
+					<section class="recent">
+						<h2>Recent runs</h2>
+						<div class="table-wrap">
+							<table>
+								<thead>
+									<tr>
+										<th scope="col">When</th>
+										<th scope="col">Job</th>
+										<th scope="col">Result</th>
+									</tr>
+								</thead>
+								<tbody>
+									{runs.map((run) => (
+										<tr class={run.status === 'failed' ? 'failed' : undefined}>
+											<td class="when">{when(run.started, now())}</td>
+											<td>
+												<a href={`/automations/runs/${run.id}`}>{runner.job(run.job)?.title ?? run.job}</a>
+												{run.dryRun && (
+													<>
+														{' '}
+														<span class="kind">Check</span>
+													</>
+												)}
+											</td>
+											<td>{status(run)}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+					</section>
+				)}
+			</Layout>,
+		);
+	});
+
+	app.get('/automations/runs/:id', async (c) => {
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		const run = runner.run(Number(c.req.param('id')));
+		if (!run) return c.redirect('/automations', 303);
+		const job = runner.job(run.job);
+		const items = runner.items(run.id);
+		return c.html(
+			<Layout
+				title={job?.title ?? 'Run'}
+				signedIn={found.s}
+				nav="automations"
+				automations={live.abs !== null}
+				refresh={run.status === 'running' ? 3 : undefined}
+			>
+				<div class="page-head">
+					<h1>{job?.title ?? run.job}</h1>
+					<p class="lede">
+						{run.dryRun ? 'Checked' : 'Ran'} {when(run.started, now())}: {status(run)}.{' '}
+						{run.dryRun && 'Nothing was changed.'} <a href="/automations">Automations</a>
+					</p>
+				</div>
+				{items.length === 0 && run.status !== 'running' && (
+					<p class="empty">Every book it checked is fine as it is.</p>
+				)}
+				{(job?.outcomes ?? []).map((outcome) => {
+					const group = items.filter((item) => item.outcome === outcome.id);
+					if (group.length === 0) return null;
+					return (
+						<section class="recent">
+							<h2>
+								{outcome.label} <span class="optional">{group.length}</span>
+							</h2>
+							{outcome.note && <p class="hint">{outcome.note}</p>}
+							<div class="table-wrap">
+								<table>
+									<tbody>
+										{group.map((item) => (
+											<tr>
+												<td class="request">{item.title}</td>
+												<td class="answer">{item.detail}</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
+						</section>
+					);
+				})}
+			</Layout>,
+		);
+	});
+
+	app.post('/automations/:job/run', async (c) => {
+		if (!sameSite(c)) return c.text('Forbidden', 403);
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		// Only checks for now: no job writes to Audiobookshelf yet.
+		const started = runner.start(c.req.param('job'), { dryRun: true });
+		return c.redirect(typeof started === 'number' ? '/automations' : `/automations?problem=${started}`, 303);
+	});
+
+	app.post('/automations/stop', async (c) => {
+		if (!sameSite(c)) return c.text('Forbidden', 403);
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		runner.stop();
+		return c.redirect('/automations', 303);
+	});
+
 	app.get('/settings', async (c) => {
 		const found = await who(c);
 		if ('page' in found) return found.page;
@@ -684,7 +905,12 @@ export function mountWeb(app: Hono, web: Web) {
 			jev: Boolean(effective.typesafeKey),
 		};
 		return (
-			<Layout title={setup ? 'Set up' : 'Settings'} signedIn={s} nav={setup ? undefined : 'settings'}>
+			<Layout
+				title={setup ? 'Set up' : 'Settings'}
+				signedIn={s}
+				nav={setup ? undefined : 'settings'}
+				automations={live.abs !== null}
+			>
 				<div class="page-head">
 					<h1>{setup ? 'Set up Athena' : 'Settings'}</h1>
 					{setup && (
@@ -836,6 +1062,67 @@ export function mountWeb(app: Hono, web: Web) {
 								Describe Its a day for each person except you; empty for none. Past it, Ithaca tells them they've used
 								today's Describe Its on your Athena.
 							</span>
+						</label>
+					</fieldset>
+
+					<fieldset id="abs">
+						<legend>
+							Audiobookshelf <span class="optional">optional</span>
+						</legend>
+						{effective.env.absURL ? (
+							<div class="field">
+								<span class="label">Address</span>
+								<span class="locked">
+									<code>{effective.absURL}</code>
+									<span>Set by {effective.env.absURL}</span>
+								</span>
+							</div>
+						) : (
+							<label class="field">
+								<span class="label">Address</span>
+								<input
+									type="url"
+									id="absURL"
+									name="absURL"
+									value={effective.absURL ?? ''}
+									placeholder="http://192.168.1.10:13378"
+									autocomplete="off"
+									autocapitalize="off"
+									spellcheck={false}
+								/>
+								<span class="hint">
+									For automations that keep your audiobooks tidy, such as naming chapters that are only numbered.
+									Leave it empty if you use Athena only for Ithaca.
+								</span>
+							</label>
+						)}
+						<KeyField
+							name="absKey"
+							label="Audiobookshelf API key"
+							current={effective.absKey}
+							env={effective.env.absKey}
+							hint={
+								<>
+									Make one in Audiobookshelf under Settings › API Keys, for a user who can update books.
+									{live.abs && !setup && (
+										<>
+											{' '}
+											<a href="/automations">Open Automations</a>
+										</>
+									)}
+								</>
+							}
+						/>
+						<label class="field">
+							<span class="label">Audible store</span>
+							<select id="audibleRegion" name="audibleRegion">
+								{AUDIBLE_REGIONS.map((region) => (
+									<option value={region.id} selected={region.id === effective.audibleRegion}>
+										{region.name}
+									</option>
+								))}
+							</select>
+							<span class="hint">Where chapter names are looked up, by each book's ASIN.</span>
 						</label>
 					</fieldset>
 
@@ -1062,6 +1349,17 @@ export function mountWeb(app: Hono, web: Web) {
 		const address = text('publicURL');
 		patch.publicURL = address ? publicAddress(address) : null;
 		if (address && !patch.publicURL) return c.redirect('/settings?problem=public', 303);
+		if (!effective.env.absURL) {
+			const abs = text('absURL');
+			patch.absURL = abs ? absBase(abs) : null;
+			if (abs && !patch.absURL) return c.redirect('/settings?problem=abs', 303);
+		}
+		if (!effective.env.absKey) {
+			if (text('absKeyRemove')) patch.absKey = null;
+			if (text('absKey')) patch.absKey = text('absKey');
+		}
+		const region = text('audibleRegion');
+		if (AUDIBLE_REGIONS.some((each) => each.id === region)) patch.audibleRegion = region;
 		patch.ownerName = s.name;
 		patch.ownerId = s.accountId;
 		patch.ownerToken = s.token;
@@ -1149,6 +1447,13 @@ const PROBLEMS = new Map([
 	['local', LOCAL_ADDRESS],
 	['limit', 'The daily limit is a whole number, or empty for none.'],
 	['public', 'The public address is an https:// address, such as https://athena.example.com.'],
+	['abs', "Audiobookshelf's address is an http:// or https:// address, such as http://192.168.1.10:13378."],
+]);
+
+const RUN_PROBLEMS = new Map([
+	['busy', 'Another job is running. Try again when it finishes.'],
+	['unconnected', 'Connect Audiobookshelf in Settings first.'],
+	['unknown', 'There is no such job.'],
 ]);
 
 /** Settings' Test request: small, so it costs next to nothing, with one clear fit. */
