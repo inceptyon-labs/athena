@@ -60,11 +60,15 @@ export function fakePlex(status = 401) {
 
 /**
  * An Audiobookshelf with one book library: a numbered book Audible names (`dune`), a numbered book whose chapters
- * break elsewhere (`emma`), a book with names already (`ivanhoe`) and one without an ASIN (`odd`). `writes` counts
- * anything but GET.
+ * break elsewhere (`emma`), a book with names already (`ivanhoe`) and one without an ASIN (`odd`). Saving chapters
+ * changes the book but not its `updatedAt`. `writes` counts saves, `lookups` Audible lookups, `fetched` book reads.
  */
-export function fakeAbs() {
+export function fakeAbs(duringLookup: (books: Record<string, unknown>) => void = () => {}) {
 	let writes = 0;
+	let lookups = 0;
+	let fetched = 0;
+	type Chapter = { id: number; start: number; end: number; title: string };
+	type Book = { id: string; updatedAt: number; media: { duration: number; chapters: Chapter[]; metadata: Record<string, unknown> } };
 	const numbered = (count: number, length: number) =>
 		Array.from({ length: count }, (_, index) => ({
 			id: index,
@@ -72,11 +76,12 @@ export function fakeAbs() {
 			end: ((index + 1) * length) / count,
 			title: `Chapter ${index + 1}`,
 		}));
-	const books: Record<string, unknown> = {
-		dune: { id: 'dune', media: { duration: 1000, chapters: numbered(2, 1000), metadata: { title: 'Dune', asin: 'B001' } } },
-		emma: { id: 'emma', media: { duration: 1000, chapters: numbered(2, 1000), metadata: { title: 'Emma', asin: 'B002' } } },
+	const books: Record<string, Book> = {
+		dune: { id: 'dune', updatedAt: 1, media: { duration: 1000, chapters: numbered(2, 1000), metadata: { title: 'Dune', asin: 'B001' } } },
+		emma: { id: 'emma', updatedAt: 1, media: { duration: 1000, chapters: numbered(2, 1000), metadata: { title: 'Emma', asin: 'B002' } } },
 		ivanhoe: {
 			id: 'ivanhoe',
+			updatedAt: 1,
 			media: {
 				duration: 1000,
 				chapters: [
@@ -88,10 +93,18 @@ export function fakeAbs() {
 		},
 	};
 	const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
-		if ((init?.method ?? 'GET') !== 'GET') writes += 1;
 		if (new Headers(init?.headers).get('Authorization') !== 'Bearer abs-key') return new Response('', { status: 401 });
 		const target = new URL(String(url));
 		const path = target.pathname;
+		const saving = path.match(/^\/api\/items\/(\w+)\/chapters$/)?.[1];
+		if (saving && init?.method === 'POST') {
+			const book = books[saving];
+			if (!book) return new Response('', { status: 404 });
+			writes += 1;
+			// Like Audiobookshelf's chapter endpoint, this saves the book's media, not the item: `updatedAt` stays.
+			book.media.chapters = (JSON.parse(String(init.body)) as { chapters: Chapter[] }).chapters;
+			return Response.json({ success: true, updated: true });
+		}
 		if (path === '/api/me') return Response.json({ id: 'u1', username: 'jason', type: 'root' });
 		if (path === '/api/libraries')
 			return Response.json({
@@ -103,16 +116,22 @@ export function fakeAbs() {
 		if (path === '/api/libraries/books/items')
 			return Response.json({
 				results: [
-					...Object.values(books).map((book) => {
-						const raw = book as { id: string; media: { chapters: unknown[]; duration: number; metadata: unknown } };
-						return { id: raw.id, media: { duration: raw.media.duration, numChapters: raw.media.chapters.length, metadata: raw.media.metadata } };
-					}),
-					{ id: 'odd', media: { duration: 1000, numChapters: 2, metadata: { title: 'Odd', asin: null } } },
+					...Object.values(books).map((book) => ({
+						id: book.id,
+						updatedAt: book.updatedAt,
+						media: { duration: book.media.duration, numChapters: book.media.chapters.length, metadata: book.media.metadata },
+					})),
+					{ id: 'odd', updatedAt: 1, media: { duration: 1000, numChapters: 2, metadata: { title: 'Odd', asin: null } } },
 				],
 			});
 		const item = path.match(/^\/api\/items\/(\w+)$/)?.[1];
-		if (item && books[item]) return Response.json(books[item]);
+		if (item && books[item]) {
+			fetched += 1;
+			return Response.json(books[item]);
+		}
 		if (path === '/api/search/chapters') {
+			lookups += 1;
+			duringLookup(books);
 			const asin = target.searchParams.get('asin');
 			if (asin === 'B001')
 				return Response.json({
@@ -134,5 +153,12 @@ export function fakeAbs() {
 		}
 		return new Response('', { status: 404 });
 	}) as typeof fetch;
-	return { abs: new Audiobookshelf('http://abs:13378', 'abs-key', fetcher), fetcher, writes: () => writes };
+	return {
+		abs: new Audiobookshelf('http://abs:13378', 'abs-key', fetcher),
+		fetcher,
+		books,
+		writes: () => writes,
+		lookups: () => lookups,
+		fetched: () => fetched,
+	};
 }

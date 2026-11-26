@@ -37,6 +37,8 @@ export type Stored = {
 	absKey?: string | null;
 	/** Audible's store for chapter lookups, such as `us` or `uk`. */
 	audibleRegion?: string | null;
+	/** The automations the owner set to run by themselves, by job id. */
+	autoJobs?: string[] | null;
 } & Partial<Record<KeyName, string | null>>;
 
 /** The settings Athena runs with: an environment variable wins over what was saved. */
@@ -57,6 +59,7 @@ export type Effective = {
 	absURL: string | null;
 	absKey: string | null;
 	audibleRegion: string;
+	autoJobs: string[];
 	/** The environment variable that set each field, shown instead of the field in the browser. */
 	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | 'absURL' | 'absKey' | KeyName, string>>;
 } & Record<KeyName, string | null>;
@@ -141,6 +144,7 @@ export class Settings {
 			absURL: absURL ?? stored.absURL ?? null,
 			absKey: absKey ?? stored.absKey ?? null,
 			audibleRegion: stored.audibleRegion && AUDIBLE_REGIONS.some((region) => region.id === stored.audibleRegion) ? stored.audibleRegion : 'us',
+			autoJobs: stored.autoJobs ?? [],
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),
 				...(fromEnv ? { provider: fromEnv.from } : {}),

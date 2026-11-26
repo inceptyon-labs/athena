@@ -15,7 +15,12 @@ const port = Number(process.env.PORT ?? 8800);
 const data = process.env.ATHENA_DATA || './data';
 const live = new Live(new Settings(data));
 const usage = new Usage(join(data, 'athena.db'));
-const runner = new Runner(join(data, 'jobs.db'), JOBS, () => ({ abs: live.abs, region: live.audibleRegion }));
+const runner = new Runner(join(data, 'jobs.db'), JOBS, () => ({
+	abs: live.abs,
+	region: live.audibleRegion,
+	auto: (id) => live.autoJobs.includes(id),
+}));
+runner.schedule();
 
 const effective = live.effective;
 if (!live.ai) warn(`no ${live.provider} model set up yet: suggestions answer 503`);

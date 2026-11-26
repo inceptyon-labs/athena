@@ -731,6 +731,7 @@ export function mountWeb(app: Hono, web: Web) {
 				{runner.jobs.map((job) => {
 					const last = runner.runs(1, job.id)[0];
 					const mine = running?.job === job.id;
+					const auto = live.autoJobs.includes(job.id);
 					return (
 						<section class="recent job">
 							<h2>{job.title}</h2>
@@ -739,9 +740,22 @@ export function mountWeb(app: Hono, web: Web) {
 								{mine && running
 									? `${status(running)}…`
 									: last
-										? `Last checked ${when(last.started, now())}: ${status(last)}.`
+										? `${last.dryRun ? 'Last checked' : 'Last run'} ${when(last.started, now())}: ${status(last)}.`
 										: 'Not run yet.'}{' '}
 								{last && !mine && <a href={`/automations/runs/${last.id}`}>See the books</a>}
+							</p>
+							<form method="post" action={`/automations/${job.id}/auto`} class="actions">
+								<label class="remove">
+									<input type="checkbox" name="auto" value="1" checked={auto} /> Run by itself every hour
+								</label>
+								<button type="submit" class="secondary small">
+									Save
+								</button>
+							</form>
+							<p class="hint">
+								{auto
+									? 'On: each hour it looks at books added or changed since the last run, and renames those that fit.'
+									: 'Off: it runs only when you press Check now, and changes nothing until you rename from the results.'}
 							</p>
 							<div class="actions">
 								{mine ? (
@@ -757,7 +771,7 @@ export function mountWeb(app: Hono, web: Web) {
 										</button>
 									</form>
 								)}
-								<span class="hint">For now a check only lists what it would change; it changes nothing.</span>
+								<span class="hint">A check lists what it would rename and changes nothing.</span>
 							</div>
 						</section>
 					);
@@ -807,6 +821,8 @@ export function mountWeb(app: Hono, web: Web) {
 		if (!run) return c.redirect('/automations', 303);
 		const job = runner.job(run.job);
 		const items = runner.items(run.id);
+		const problem = RUN_PROBLEMS.get(c.req.query('problem') ?? '') ?? null;
+		const ready = items.filter((item) => item.outcome === 'ready');
 		return c.html(
 			<Layout
 				title={job?.title ?? 'Run'}
@@ -818,10 +834,15 @@ export function mountWeb(app: Hono, web: Web) {
 				<div class="page-head">
 					<h1>{job?.title ?? run.job}</h1>
 					<p class="lede">
-						{run.dryRun ? 'Checked' : 'Ran'} {when(run.started, now())}: {status(run)}.{' '}
-						{run.dryRun && 'Nothing was changed.'} <a href="/automations">Automations</a>
+						{run.dryRun ? 'Checked' : run.trigger === 'schedule' ? 'Ran by itself' : 'Ran'} {when(run.started, now())}:{' '}
+						{status(run)}. {run.dryRun && 'Nothing was changed.'} <a href="/automations">Automations</a>
 					</p>
 				</div>
+				{problem && (
+					<p class="banner error" role="alert">
+						{problem}
+					</p>
+				)}
 				{items.length === 0 && run.status !== 'running' && (
 					<p class="empty">Every book it checked is fine as it is.</p>
 				)}
@@ -841,11 +862,33 @@ export function mountWeb(app: Hono, web: Web) {
 											<tr>
 												<td class="request">{item.title}</td>
 												<td class="answer">{item.detail}</td>
+												{job?.undoable?.includes(outcome.id) && (
+													<td class="num">
+														{item.undone ? (
+															<span class="kind">Undone</span>
+														) : (
+															<form method="post" action={`/automations/runs/${run.id}/undo`}>
+																<input type="hidden" name="item" value={item.item} />
+																<button type="submit" class="secondary small">
+																	Undo
+																</button>
+															</form>
+														)}
+													</td>
+												)}
 											</tr>
 										))}
 									</tbody>
 								</table>
 							</div>
+							{outcome.id === 'ready' && run.dryRun && (
+								<form method="post" action={`/automations/runs/${run.id}/rename`} class="actions">
+									<button type="submit" class="primary" disabled={runner.running !== null}>
+										Rename {ready.length === 1 ? 'this book' : `these ${ready.length} books`}
+									</button>
+									<span class="hint">Each book is read again first, and left alone if it changed.</span>
+								</form>
+							)}
 						</section>
 					);
 				})}
@@ -860,6 +903,51 @@ export function mountWeb(app: Hono, web: Web) {
 		// Only checks for now: no job writes to Audiobookshelf yet.
 		const started = runner.start(c.req.param('job'), { dryRun: true });
 		return c.redirect(typeof started === 'number' ? '/automations' : `/automations?problem=${started}`, 303);
+	});
+
+	app.post('/automations/runs/:id/rename', async (c) => {
+		if (!sameSite(c)) return c.text('Forbidden', 403);
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		const run = runner.run(Number(c.req.param('id')));
+		if (!run?.dryRun) return c.redirect('/automations', 303);
+		// What the check showed, so the rename writes just that and leaves any book that changed since.
+		const plan = Object.fromEntries(
+			runner.items(run.id).flatMap((item) => (item.outcome === 'ready' ? [[item.item, { before: item.before, after: item.after }]] : [])),
+		);
+		if (Object.keys(plan).length === 0) return c.redirect(`/automations/runs/${run.id}`, 303);
+		const started = runner.start(run.job, { dryRun: false, plan });
+		return c.redirect(typeof started === 'number' ? `/automations/runs/${started}` : `/automations/runs/${run.id}?problem=${started}`, 303);
+	});
+
+	app.post('/automations/runs/:id/undo', async (c) => {
+		if (!sameSite(c)) return c.text('Forbidden', 403);
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		const id = Number(c.req.param('id'));
+		const form = await c.req.parseBody();
+		const item = typeof form.item === 'string' ? form.item : '';
+		let problem: string | null;
+		try {
+			problem = await runner.undo(id, item);
+		} catch (error) {
+			warn(`undo in run ${id} failed: ${error instanceof Error ? error.message : String(error)}`);
+			problem = 'failed';
+		}
+		return c.redirect(problem ? `/automations/runs/${id}?problem=${problem}` : `/automations/runs/${id}`, 303);
+	});
+
+	app.post('/automations/:job/auto', async (c) => {
+		if (!sameSite(c)) return c.text('Forbidden', 403);
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		const job = runner.job(c.req.param('job'));
+		if (!job) return c.redirect('/automations', 303);
+		const form = await c.req.parseBody();
+		const others = live.effective.autoJobs.filter((id) => id !== job.id);
+		live.settings.save({ autoJobs: form.auto === '1' ? [...others, job.id] : others });
+		live.refresh();
+		return c.redirect('/automations', 303);
 	});
 
 	app.post('/automations/stop', async (c) => {
@@ -1452,6 +1540,9 @@ const PROBLEMS = new Map([
 
 const RUN_PROBLEMS = new Map([
 	['busy', 'Another job is running. Try again when it finishes.'],
+	['changed', 'Its chapters have changed since, so they were left as they are.'],
+	['nothing', 'There is nothing to undo there.'],
+	['failed', "Audiobookshelf didn't take the undo. Try again in a minute."],
 	['unconnected', 'Connect Audiobookshelf in Settings first.'],
 	['unknown', 'There is no such job.'],
 ]);

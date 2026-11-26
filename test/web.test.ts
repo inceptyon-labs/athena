@@ -58,7 +58,7 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 	const live = new Live(settings, fetcher);
 	const usage = new Usage(':memory:');
 	const app = createApp(Object.assign(live, { usage }));
-	const runner = new Runner(':memory:', JOBS, () => ({ abs: live.abs, region: live.audibleRegion }));
+	const runner = new Runner(':memory:', JOBS, () => ({ abs: live.abs, region: live.audibleRegion, auto: (id) => live.autoJobs.includes(id) }));
 	mountWeb(app, { live, usage, runner, sessions: new Sessions() });
 
 	const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
@@ -396,13 +396,44 @@ describe('automations', () => {
 		expect(health.ready).toBe(false);
 	});
 
+	test('the owner renames what a check found, undoes one, and turns the hourly run on', async () => {
+		const withAbs = { ...ready, absURL: 'http://abs:13378', absKey: 'abs-key' };
+		const { live, runner, get, post, signIn } = athena(withAbs);
+		const cookie = await signIn('owner-token');
+		await post('/automations/chapter-names/run', {}, cookie);
+		await runner.idle();
+		const check = runner.runs(1)[0]?.id;
+		expect(await (await get(`/automations/runs/${check}`, cookie)).text()).toContain('Rename this book');
+
+		const renamed = await post(`/automations/runs/${check}/rename`, {}, cookie);
+		await runner.idle();
+		const run = runner.runs(1)[0];
+		expect(renamed.headers.get('Location')).toBe(`/automations/runs/${run?.id}`);
+		expect(run?.counts).toEqual({ renamed: 1 });
+		const page = await (await get(`/automations/runs/${run?.id}`, cookie)).text();
+		expect(page).toContain('Renamed');
+		expect(page).toContain('>Undo<');
+
+		const undone = await post(`/automations/runs/${run?.id}/undo`, { item: 'dune' }, cookie);
+		expect(undone.headers.get('Location')).toBe(`/automations/runs/${run?.id}`);
+		expect(await (await get(`/automations/runs/${run?.id}`, cookie)).text()).toContain('Undone');
+
+		await post('/automations/chapter-names/auto', { auto: '1' }, cookie);
+		expect(live.autoJobs).toEqual(['chapter-names']);
+		expect(await (await get('/automations', cookie)).text()).toContain('On: each hour');
+		await post('/automations/chapter-names/auto', {}, cookie);
+		expect(live.autoJobs).toEqual([]);
+	});
+
 	test("a friend can't open automations or start a job, and a bad address is turned down", async () => {
 		const withAbs = { ...ready, absURL: 'http://abs:13378', absKey: 'abs-key' };
-		const { get, post, signIn, runner } = athena(withAbs);
+		const { live, get, post, signIn, runner } = athena(withAbs);
 		const friend = await signIn('friend-token');
 		expect((await get('/automations', friend)).headers.get('Location')).toBe('/');
 		await post('/automations/chapter-names/run', {}, friend);
+		await post('/automations/chapter-names/auto', { auto: '1' }, friend);
 		expect(runner.runs()).toHaveLength(0);
+		expect(live.autoJobs).toEqual([]);
 		const owner = await signIn('owner-token');
 		const bad = await post('/settings', { server: 'machine-1', absURL: 'abs.local' }, owner);
 		expect(bad.headers.get('Location')).toBe('/settings?problem=abs');

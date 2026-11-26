@@ -86,9 +86,15 @@ Under Settings → Audiobookshelf, enter its address (`http://192.168.1.10:13378
 under Settings → API Keys, for a user who can update books. An **Automations** page then appears. Its first job,
 **Chapter names**, finds books whose chapters are only numbered ("Chapter 1", "01", "Track 3") and looks up Audible's
 names for them by ASIN, through Audiobookshelf. It takes them only when Audible has as many chapters as the book, each
-starting within 2 seconds of the book's, so only titles would change, never where chapters start. For now it only
-checks: each run lists what it would rename and changes nothing. Jobs run one at a time in the background and never
-slow Describe It; their log is `jobs.db` in the data folder.
+starting within 2 seconds of the book's, so only titles change, never where chapters start.
+
+- **Check now** lists what it would rename and changes nothing. From its results, **Rename** renames those books,
+  reading each one again first and leaving it alone if it changed. Every app, Siren included, sees the new names.
+- **Undo**, on each renamed book, puts its old titles back, unless its chapters have changed since.
+- **Run by itself every hour** (off until you turn it on) looks at books added or changed since its last run and
+  renames those that fit, so new books get names without you.
+
+Jobs run one at a time in the background and never slow Describe It; their log is `jobs.db` in the data folder.
 
 ## Environment variables
 

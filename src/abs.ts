@@ -10,6 +10,8 @@ export type AbsBook = {
 	duration: number;
 	/** In the library listing, which leaves the chapters out. */
 	numChapters: number | null;
+	/** When Audiobookshelf last changed the book, in milliseconds; a matched or edited book moves it on. */
+	updatedAt: number | null;
 	/** Only from `book`. */
 	chapters: AbsChapter[];
 };
@@ -51,6 +53,7 @@ export function absBase(input: string): string | null {
 
 type RawBook = {
 	id: string;
+	updatedAt?: number;
 	media?: {
 		duration?: number;
 		numChapters?: number;
@@ -69,6 +72,7 @@ function bookOf(raw: RawBook): AbsBook {
 		duration: raw.media?.duration ?? 0,
 		numChapters: raw.media?.numChapters ?? raw.media?.chapters?.length ?? null,
 		chapters: raw.media?.chapters ?? [],
+		updatedAt: raw.updatedAt ?? null,
 	};
 }
 
@@ -80,12 +84,22 @@ export class Audiobookshelf {
 		private readonly fetcher: typeof fetch = fetch,
 	) {}
 
-	private async get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
+	private get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
+		return this.request<T>('GET', path, query);
+	}
+
+	private async request<T>(method: 'GET' | 'POST', path: string, query: Record<string, string> = {}, body?: unknown): Promise<T> {
 		const search = new URLSearchParams(query).toString();
 		let response: Response;
 		try {
 			response = await this.fetcher(`${this.url}${path}${search ? `?${search}` : ''}`, {
-				headers: { Authorization: `Bearer ${this.key}`, Accept: 'application/json' },
+				method,
+				headers: {
+					Authorization: `Bearer ${this.key}`,
+					Accept: 'application/json',
+					...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+				},
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 				signal: AbortSignal.timeout(30_000),
 			});
 		} catch (error) {
@@ -123,5 +137,12 @@ export class Audiobookshelf {
 
 	audibleChapters(asin: string, region: string): Promise<AudibleChapters> {
 		return this.get<AudibleChapters>('/api/search/chapters', { asin, region });
+	}
+
+	/** Replaces a book's chapters, for every app. Needs a user who can update books. */
+	async saveChapters(id: string, chapters: AbsChapter[]): Promise<void> {
+		await this.request('POST', `/api/items/${encodeURIComponent(id)}/chapters`, {}, {
+			chapters: chapters.map(({ id: chapterId, start, end, title }) => ({ id: chapterId, start, end, title })),
+		});
 	}
 }
