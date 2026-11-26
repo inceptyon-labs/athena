@@ -4,11 +4,11 @@
   "meta": {
     "title": "Athena architecture",
     "locale": "en",
-    "output": ".archify/architecture-athena-overview-20261121-163124/athena-overview.html",
+    "output": ".archify/architecture-athena-overview-20261125-211500/athena-overview.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "git@github.com:inceptyon-labs/athena.git",
-      "revision": "f3ab9bf3087ff59f13dcfd4d0ac5f6aa9fc0a4c8",
+      "revision": "f11ce84a66a9eb388c41e476231be00a4a903cc0",
       "link_mode": "local-only"
     }
   },
@@ -17,26 +17,26 @@
       "id": "web", "type": "frontend", "label": "Web UI", "sublabel": "status · Share · Settings",
       "tag": "Plex PIN sign-in", "pos": [680, 100], "size": [170, 70],
       "sources": [
-        { "path": "src/web.tsx", "line": 200, "end_line": 216, "label": "roles from plex.tv server list" },
-        { "path": "src/web.tsx", "line": 266, "end_line": 338, "label": "Plex PIN sign-in, session cookie" },
-        { "path": "src/web.tsx", "line": 992, "end_line": 1050, "label": "POST /settings: owner or setup only" }
+        { "path": "src/web.tsx", "line": 231, "end_line": 241, "label": "roleOf: roles from plex.tv servers" },
+        { "path": "src/web.tsx", "line": 297, "end_line": 379, "label": "Plex PIN sign-in, session cookie" },
+        { "path": "src/web.tsx", "line": 1591, "end_line": 1656, "label": "POST /settings: owner or setup only" }
       ]
     },
     {
       "id": "settings", "type": "database", "label": "Settings", "sublabel": "settings.json · env wins",
       "tag": "keys · mode 600", "pos": [1050, 100], "size": [180, 70],
       "sources": [
-        { "path": "src/settings.ts", "line": 70, "end_line": 111, "label": "effective(): env vars win" },
-        { "path": "src/settings.ts", "line": 113, "end_line": 121, "label": "save: mode 600, atomic rename" },
-        { "path": "src/live.ts", "line": 20, "end_line": 61, "label": "Live.refresh rebuilds AI and gate" }
+        { "path": "src/settings.ts", "line": 115, "end_line": 170, "label": "effective(): env vars win" },
+        { "path": "src/settings.ts", "line": 173, "end_line": 180, "label": "save: mode 600, atomic rename" },
+        { "path": "src/live.ts", "line": 55, "end_line": 81, "label": "Live.refresh rebuilds AI and gate" }
       ]
     },
     {
       "id": "browser", "type": "external", "label": "Browser", "sublabel": "owner and viewers",
       "pos": [80, 220], "size": [160, 68],
       "sources": [
-        { "path": "src/web.tsx", "line": 28, "end_line": 31, "label": "web UI for owner and viewers" },
-        { "path": "README.md", "line": 88, "end_line": 89, "label": "anyone with access can sign in" }
+        { "path": "src/web.tsx", "line": 33, "end_line": 43, "label": "web UI for owner and viewers" },
+        { "path": "README.md", "line": 146, "end_line": 150, "label": "anyone with access can sign in" }
       ]
     },
     {
@@ -59,16 +59,16 @@
       "id": "ithaca", "type": "external", "label": "Ithaca (at home)", "sublabel": "Apple TV · iPhone · iPad",
       "pos": [80, 350], "size": [160, 76],
       "sources": [
-        { "path": "src/pick.ts", "line": 39, "end_line": 61, "label": "PickRequest: what Ithaca sends" },
-        { "path": "README.md", "line": 68, "end_line": 71, "label": "Ithaca finds port 8800 at home" }
+        { "path": "src/pick.ts", "line": 41, "end_line": 62, "label": "PickRequest: what Ithaca sends" },
+        { "path": "README.md", "line": 71, "end_line": 73, "label": "Ithaca finds port 8800 at home" }
       ]
     },
     {
       "id": "serve", "type": "backend", "label": "Bun.serve :8800", "sublabel": "main.ts · one Hono app",
       "pos": [380, 350], "size": [160, 76],
       "sources": [
-        { "path": "src/main.ts", "line": 10, "end_line": 16, "label": "umask 077, port, data dir" },
-        { "path": "src/main.ts", "line": 23, "end_line": 26, "label": "createApp + mountWeb on Bun.serve" }
+        { "path": "src/main.ts", "line": 10, "end_line": 17, "label": "umask 077, port, data dir" },
+        { "path": "src/main.ts", "line": 32, "end_line": 35, "label": "createApp + mountWeb on Bun.serve" }
       ]
     },
     {
@@ -84,8 +84,9 @@
       "id": "claude", "type": "backend", "label": "Claude client", "sublabel": "pick.ts · Anthropic SDK",
       "pos": [1050, 350], "size": [180, 76],
       "sources": [
-        { "path": "src/pick.ts", "line": 267, "end_line": 306, "label": "claude(), pick(): messages.parse" },
-        { "path": "src/live.ts", "line": 16, "label": "Anthropic client, 45 s, one retry" }
+        { "path": "src/pick.ts", "line": 281, "end_line": 283, "label": "claude(): pick and titles" },
+        { "path": "src/pick.ts", "line": 306, "end_line": 342, "label": "pick(): messages.parse" },
+        { "path": "src/live.ts", "line": 18, "label": "Anthropic client, 45 s, one retry" }
       ]
     },
     {
@@ -122,8 +123,8 @@
       "id": "compat", "type": "backend", "label": "Compat client", "sublabel": "compat.ts · Chat Completions",
       "pos": [1050, 600], "size": [180, 68],
       "sources": [
-        { "path": "src/compat.ts", "line": 88, "end_line": 151, "label": "compat(): POST /chat/completions" },
-        { "path": "src/live.ts", "line": 9, "end_line": 18, "label": "makeAI picks the client" }
+        { "path": "src/compat.ts", "line": 91, "end_line": 186, "label": "compat(): POST /chat/completions" },
+        { "path": "src/live.ts", "line": 11, "end_line": 20, "label": "makeAI picks the client" }
       ]
     },
     {
@@ -137,16 +138,16 @@
       "id": "proxy", "type": "external", "label": "Reverse proxy", "sublabel": "owner's HTTPS, e.g. Caddy",
       "pos": [80, 730], "size": [160, 64],
       "sources": [
-        { "path": "README.md", "line": 97, "end_line": 106, "label": "HTTPS reverse proxy to :8800" },
+        { "path": "README.md", "line": 170, "end_line": 179, "label": "HTTPS reverse proxy to :8800" },
         { "path": "src/settings.ts", "line": 19, "end_line": 20, "label": "publicURL through the proxy" },
-        { "path": "src/web.tsx", "line": 45, "end_line": 51, "label": "X-Forwarded-Proto and -Host" }
+        { "path": "src/web.tsx", "line": 51, "end_line": 57, "label": "X-Forwarded-Proto and -Host" }
       ]
     },
     {
       "id": "local", "type": "external", "label": "Local model server", "sublabel": "Ollama · LM Studio",
       "pos": [1050, 730], "size": [180, 64],
       "sources": [
-        { "path": "src/live.ts", "line": 11, "end_line": 12, "label": "local: settings address, no key" },
+        { "path": "src/live.ts", "line": 13, "end_line": 14, "label": "local: settings address, no key" },
         { "path": "src/providers.ts", "line": 111, "end_line": 118, "label": "local provider entry" }
       ]
     },
@@ -154,23 +155,57 @@
       "id": "friends", "type": "external", "label": "Friends' Ithaca", "sublabel": "away from home",
       "pos": [80, 880], "size": [160, 60],
       "sources": [
-        { "path": "src/share.ts", "line": 3, "end_line": 21, "label": "https address, ithaca:// link" },
-        { "path": "README.md", "line": 108, "end_line": 114, "label": "Share: link, QR, address" }
+        { "path": "README.md", "line": 181, "end_line": 188, "label": "Share: link, QR, address" },
+        { "path": "src/share.ts", "line": 3, "end_line": 21, "label": "https address, ithaca:// link" }
+      ]
+    },
+    {
+      "id": "automations", "type": "backend", "label": "Automations", "sublabel": "jobs.ts · optional",
+      "tag": "owner approves", "pos": [430, 590], "size": [190, 68],
+      "sources": [
+        { "path": "src/jobs.ts", "line": 189, "end_line": 261, "label": "Runner.start: one run at a time" },
+        { "path": "src/jobs.ts", "line": 314, "end_line": 340, "label": "decide: Approve writes one book" },
+        { "path": "src/web.tsx", "line": 1004, "end_line": 1057, "label": "Read, Approve, Reject: owner only" }
+      ]
+    },
+    {
+      "id": "abs", "type": "external", "label": "Audiobookshelf", "sublabel": "books · chapters · audio files",
+      "pos": [430, 730], "size": [190, 64],
+      "sources": [
+        { "path": "src/abs.ts", "line": 150, "end_line": 152, "label": "book: chapters and files" },
+        { "path": "src/abs.ts", "line": 158, "end_line": 160, "label": "trackInput: ffmpeg range reads" },
+        { "path": "src/abs.ts", "line": 167, "end_line": 171, "label": "saveChapters: titles only" }
+      ]
+    },
+    {
+      "id": "audnexus", "type": "external", "label": "Audnexus · Audible", "sublabel": "chapters by ASIN, every store",
+      "pos": [430, 880], "size": [190, 60],
+      "sources": [
+        { "path": "src/abs.ts", "line": 162, "end_line": 164, "label": "via Audiobookshelf /api/search/chapters" },
+        { "path": "src/jobs/chapter-names.ts", "line": 213, "end_line": 250, "label": "lookUp: your store, then uk, ca, rest" }
+      ]
+    },
+    {
+      "id": "elevenlabs", "type": "external", "label": "ElevenLabs Scribe", "sublabel": "speech to text · $0.20 an hour",
+      "pos": [1420, 880], "size": [190, 64],
+      "sources": [
+        { "path": "src/speech.ts", "line": 19, "end_line": 24, "label": "scribe_v3, $0.20 per audio hour" },
+        { "path": "src/speech.ts", "line": 30, "end_line": 93, "label": "elevenLabs(): one clip per request" }
       ]
     }
   ],
   "boundaries": [
     {
       "kind": "region", "label": "Home network (LAN)", "pad": 44,
-      "wraps": ["browser", "ithaca", "proxy", "local", "serve", "api", "web", "plex", "settings", "usage", "claude", "jev", "compat"]
+      "wraps": ["browser", "ithaca", "proxy", "local", "serve", "api", "web", "plex", "settings", "usage", "claude", "jev", "compat", "automations", "abs"]
     },
     {
       "kind": "security-group", "label": "Athena container: keys, tokens, /data", "pad": 20,
-      "wraps": ["serve", "api", "web", "plex", "settings", "usage", "claude", "jev", "compat"]
+      "wraps": ["serve", "api", "web", "plex", "settings", "usage", "claude", "jev", "compat", "automations"]
     },
     {
-      "kind": "region", "label": "Third-party AI: sees request + library", "pad": 20,
-      "wraps": ["anthropic", "typesafe", "openai"]
+      "kind": "region", "label": "Third-party AI: sees what Athena sends it", "pad": 20,
+      "wraps": ["anthropic", "typesafe", "openai", "elevenlabs"]
     }
   ],
   "connections": [
@@ -191,7 +226,11 @@
     { "id": "claude-to-anthropic", "from": "claude", "to": "anthropic", "label": "messages.parse", "variant": "emphasis" },
     { "id": "jev-to-typesafe", "from": "jev", "to": "typesafe", "label": "POST /v1/systemone" },
     { "id": "compat-to-openai", "from": "compat", "to": "openai", "label": "POST /chat/completions" },
-    { "id": "compat-to-local", "from": "compat", "to": "local", "label": "same API, no key" }
+    { "id": "compat-to-local", "from": "compat", "to": "local", "label": "same API, no key" },
+    { "id": "serve-to-automations", "from": "serve", "to": "automations", "label": "/automations (owner)" },
+    { "id": "automations-to-abs", "from": "automations", "to": "abs", "label": "read, re-read, save" },
+    { "id": "abs-to-audnexus", "from": "abs", "to": "audnexus", "label": "chapter lookups" },
+    { "id": "automations-to-elevenlabs", "from": "automations", "to": "elevenlabs", "label": "chapter openings, if chosen", "fromSide": "right", "toSide": "left", "via": [[660, 624], [660, 912]] }
   ],
   "cards": [
     {
@@ -211,7 +250,8 @@
         "Internet: friends reach Athena only through the owner's HTTPS reverse proxy",
         "Athena container: API keys live in settings.json (mode 600, umask 077); it runs as 99:100",
         "Viewers' Plex tokens: SHA-256 hashes in PlexGate's cache; only the owner's is saved, to read the share list",
-        "Third-party AI gets the request text and library titles; a local model keeps them on the LAN"
+        "Third-party AI gets the request text and library titles; a local model keeps them on the LAN",
+        "Automations: the Audiobookshelf key stays in settings.json; ElevenLabs, if chosen, gets only each chapter’s first seconds; Whisper keeps them in the container"
       ]
     },
     {
@@ -230,7 +270,18 @@
         "Dockerfile: oven/bun image, PORT 8800, ATHENA_DATA=/data, healthcheck on GET /healthz",
         "docker-compose.yml mounts ./data:/data for settings.json and athena.db",
         "entrypoint.sh gives /data to PUID:PGID (99:100) and drops root",
-        "With PLEX_URL set, PlexGate reads that Plex server's /identity for its machine id, then asks plex.tv"
+        "With PLEX_URL set, PlexGate reads that Plex server's /identity for its machine id, then asks plex.tv",
+        "The speech build target adds ffmpeg and whisper.cpp; compose builds it with ATHENA_TARGET=speech"
+      ]
+    },
+    {
+      "dot": "amber", "title": "Automations (optional)",
+      "items": [
+        "Hidden until Audiobookshelf is connected, owner only; Describe It and /healthz ready never depend on it",
+        "Chapter names: Audible’s names by ASIN through Audiobookshelf, from your store first, then the others",
+        "Titles from the audio: ffmpeg cuts each chapter’s first seconds, Whisper or ElevenLabs reads them, the chosen model titles them",
+        "Nothing is written until the owner approves; each write re-reads the book, one at a time per book, and reads it back",
+        "Whisper (speech image) reads on this machine for free; ElevenLabs only gets the clips when chosen in Settings"
       ]
     }
   ]

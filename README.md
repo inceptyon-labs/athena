@@ -2,7 +2,7 @@
 
 # Athena
 
-**The AI companion for Ithaca for Plex.**
+**The AI and automation companion for Ithaca and Siren.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![gitleaks](https://github.com/inceptyon-labs/athena/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/inceptyon-labs/athena/actions/workflows/gitleaks.yml)
@@ -14,9 +14,13 @@ you choose reads the request instead (Claude, GPT, Gemini, Grok, DeepSeek, or a 
 understands any phrasing, knows films your library doesn't have (so its To Request suggestions are better when Seerr is
 connected), and gives a one-line reason for each pick.
 
+If you also run [Audiobookshelf](https://www.audiobookshelf.org) (for [Siren](https://inceptyon.io/siren/support) or
+any other audiobook app), Athena can tidy it too: it names chapters that are only numbered, from Audible or from what
+the narrator reads at the start of each chapter, and changes nothing you haven't approved ([Automations](#automations-audiobookshelf)).
+
 Athena is a small server you run yourself, next to Plex and Seerr. Your household's Ithaca finds it on your home
 network by itself; friends who use your Plex from outside reach it the way they reach your Seerr, at an HTTPS address.
-Your API key stays on it, so the apps need none. It reads no library: Ithaca sends the titles that fit the
+Your API keys stay on it, so the apps need none. It reads no library: Ithaca sends the titles that fit the
 screen's filters with each request. Only people with access to your Plex server can use it.
 
 ## Install
