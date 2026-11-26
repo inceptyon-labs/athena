@@ -880,6 +880,11 @@ export function mountWeb(app: Hono, web: Web) {
 								{outcome.label} <span class="optional">{group.length}</span>
 							</h2>
 							{outcome.note && <p class="hint">{outcome.note}</p>}
+							{outcome.action && (
+								<p class="hint">
+									<strong>What you can do:</strong> {outcome.action}
+								</p>
+							)}
 							<div class="table-wrap">
 								<table>
 									<tbody>

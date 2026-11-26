@@ -44,8 +44,11 @@ export interface Job {
 	id: string;
 	title: string;
 	summary: string;
-	/** The outcomes it logs, in the order the run page lists them, with a heading and a line about each. */
-	outcomes: { id: string; label: string; note?: string }[];
+	/**
+	 * The outcomes it logs, in the order the run page lists them: a heading, what it means, and what the owner can do
+	 * about it (even if that's nothing).
+	 */
+	outcomes: { id: string; label: string; note?: string; action?: string }[];
 	/** The outcomes Undo applies to, if the job can undo what it did. */
 	undoable?: string[];
 	run(ctx: JobContext): Promise<void>;

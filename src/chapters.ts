@@ -2,9 +2,9 @@ import type { AbsChapter, AudibleChapters } from './abs';
 
 /**
  * Audible's names for a book's own chapters. Only titles change: the book's chapter marks stay. Audible's starts are
- * taken as they are when Audible's length is the book's, or moved back by Audible's intro when the file was cut
- * without the intro and outro; then Audible must have as many chapters as the book, each starting within
- * `MARK_TOLERANCE` of the book's. Ported from Siren (`SirenKit/Sources/SirenKit/ChapterNames.swift`).
+ * taken as they are, or moved back by Audible's intro when the file was cut without the intro and outro, whichever
+ * fits the book's length within `LENGTH_TOLERANCE`; then Audible must have as many chapters as the book, each
+ * starting within `MARK_TOLERANCE` of the book's. Ported from Siren (`SirenKit/Sources/SirenKit/ChapterNames.swift`).
  */
 export type Outcome =
 	| { kind: 'ready'; chapters: AbsChapter[] }
@@ -19,8 +19,11 @@ export type Outcome =
 	| { kind: 'marksDiffer'; audible: number; book: number; off: { chapter: number; seconds: number } | null }
 	| { kind: 'notFound' };
 
-/** How far Audible's length can be from the book's, in seconds. */
-export const LENGTH_TOLERANCE = 5;
+/**
+ * How far Audible's length can be from the book's, in seconds. Generous, since every chapter start must also line up
+ * within `MARK_TOLERANCE`: a file encoded a little differently is still the same recording.
+ */
+export const LENGTH_TOLERANCE = 60;
 /** How far each of Audible's chapter starts can be from the book's, in seconds. */
 export const MARK_TOLERANCE = 2;
 
@@ -53,13 +56,23 @@ export function match(audible: AudibleChapters, marks: AbsChapter[], duration: n
 	const length = (audible.runtimeLengthMs ?? (last ? last.startOffsetMs + last.lengthMs : 0)) / 1000;
 	const intro = (audible.brandIntroDurationMs ?? 0) / 1000;
 	const outro = (audible.brandOutroDurationMs ?? 0) / 1000;
-	let shift: number;
-	if (Math.abs(duration - length) <= LENGTH_TOLERANCE) shift = 0;
-	else if (intro + outro > 0 && Math.abs(duration - (length - intro - outro)) <= LENGTH_TOLERANCE) shift = intro;
-	else return { kind: 'lengthDiffers', seconds: length - duration };
+	// As Audible has it, or without its intro and outro when the file was cut without them.
+	const candidates = [{ shift: 0, length }, ...(intro + outro > 0 ? [{ shift: intro, length: length - intro - outro }] : [])].filter(
+		(candidate) => Math.abs(duration - candidate.length) <= LENGTH_TOLERANCE,
+	);
+	if (candidates.length === 0) return { kind: 'lengthDiffers', seconds: length - duration };
+	let miss: Outcome | null = null;
+	for (const { shift } of candidates) {
+		const outcome = lineUp(items, shift, marks, duration);
+		if (outcome.kind === 'ready') return outcome;
+		miss ??= outcome;
+	}
+	return miss ?? { kind: 'notFound' };
+}
 
-	// Audible's chapters as they fall in this file. A chapter that lay wholly inside the trimmed intro (its opening
-	// credits) isn't in the file.
+/** Audible's chapters moved back by `shift`, against the book's: its names on the book's marks, or where they differ. */
+function lineUp(items: NonNullable<AudibleChapters['chapters']>, shift: number, marks: AbsChapter[], duration: number): Outcome {
+	// A chapter that lay wholly inside the trimmed intro (its opening credits) isn't in the file.
 	const shifted: { start: number; title: string }[] = [];
 	for (const item of items) {
 		const start = item.startOffsetMs / 1000 - shift;

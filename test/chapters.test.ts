@@ -46,6 +46,16 @@ describe("matching Audible's names to a book's chapters", () => {
 		expect(outcome.kind === 'ready' && outcome.chapters.map((chapter) => chapter.title)).toEqual(['Prologue', 'The Boy Who Lived']);
 	});
 
+	test('a file a few seconds longer or shorter matches when every chapter lines up', () => {
+		const outcome = match(audible, marks(0, 2, 600.5, 1000), 1019, 'X');
+		expect(outcome.kind === 'ready' && outcome.chapters.map((chapter) => chapter.title)).toEqual([
+			'Opening Credits',
+			'Prologue',
+			'The Boy Who Lived',
+			'End Credits',
+		]);
+	});
+
 	test('the same length with chapters in other places is left alone', () => {
 		expect(match(audible, marks(0, 500), 1003, 'X').kind).toBe('marksDiffer');
 	});

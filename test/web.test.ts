@@ -389,6 +389,7 @@ describe('automations', () => {
 		expect(results).toContain('Chapters don’t line up');
 		expect(results).toContain('Audible’s chapter 2 starts 3m 20s earlier than this book’s.');
 		expect(results).toContain('Nothing was changed.');
+		expect(results).toContain('<strong>What you can do:</strong> Press Rename below');
 	});
 
 	test('a check started from another site is refused, and Audiobookshelf alone never makes Describe It ready', async () => {
