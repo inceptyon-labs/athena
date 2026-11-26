@@ -4,22 +4,22 @@
   "meta": {
     "title": "Athena architecture",
     "locale": "en",
-    "output": ".archify/architecture-athena-overview-20261126-095500/athena-overview.html",
+    "output": ".archify/architecture-athena-overview-20261126-100500/athena-overview.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "git@github.com:inceptyon-labs/athena.git",
-      "revision": "627db78751965f90dd36659864c2bff7abecc223",
+      "revision": "e1e8f25945370908379180ad8758a0c6799d3afc",
       "link_mode": "local-only"
     }
   },
   "components": [
     {
       "id": "web", "type": "frontend", "label": "Web UI", "sublabel": "status · Share · Settings",
-      "tag": "owner pages: admin port, home only", "pos": [680, 100], "size": [170, 70],
+      "tag": "Settings: admin port, home only", "pos": [680, 100], "size": [170, 70],
       "sources": [
-        { "path": "src/web.tsx", "line": 336, "end_line": 355, "label": "who: owner pages only on admin port, at home" },
-        { "path": "src/web.tsx", "line": 387, "end_line": 469, "label": "Plex PIN sign-in, 7-day session cookie" },
-        { "path": "src/web.tsx", "line": 1737, "end_line": 1803, "label": "POST /settings: form token, owner or setup" }
+        { "path": "src/web.tsx", "line": 346, "end_line": 365, "label": "who: Settings only on admin port, at home" },
+        { "path": "src/web.tsx", "line": 397, "end_line": 479, "label": "Plex PIN sign-in, 7-day session cookie" },
+        { "path": "src/web.tsx", "line": 1748, "end_line": 1814, "label": "POST /settings: form token, owner or setup" }
       ]
     },
     {
@@ -35,8 +35,8 @@
       "id": "browser", "type": "external", "label": "Browser", "sublabel": "owner and viewers",
       "pos": [80, 220], "size": [160, 68],
       "sources": [
-        { "path": "src/web.tsx", "line": 35, "end_line": 52, "label": "two ports: public 8800, admin 8801" },
-        { "path": "README.md", "line": 187, "end_line": 190, "label": "anyone with access can sign in" }
+        { "path": "src/web.tsx", "line": 35, "end_line": 53, "label": "two ports: public 8800, admin 8801" },
+        { "path": "README.md", "line": 189, "end_line": 192, "label": "anyone with access can sign in" }
       ]
     },
     {
@@ -138,9 +138,9 @@
       "id": "proxy", "type": "external", "label": "Reverse proxy or tunnel", "sublabel": "owner's HTTPS to :8800 only",
       "pos": [80, 730], "size": [160, 64],
       "sources": [
-        { "path": "README.md", "line": 200, "end_line": 207, "label": "HTTPS proxy or tunnel to :8800, never 8801" },
+        { "path": "README.md", "line": 202, "end_line": 209, "label": "HTTPS proxy or tunnel to :8800, never 8801" },
         { "path": "src/settings.ts", "line": 20, "end_line": 21, "label": "publicURL through the proxy" },
-        { "path": "src/web.tsx", "line": 65, "end_line": 101, "label": "forwarded headers trusted only from home" }
+        { "path": "src/web.tsx", "line": 66, "end_line": 101, "label": "forwarded headers trusted only from home" }
       ]
     },
     {
@@ -155,7 +155,7 @@
       "id": "friends", "type": "external", "label": "Friends' Ithaca", "sublabel": "away from home",
       "pos": [80, 880], "size": [160, 60],
       "sources": [
-        { "path": "README.md", "line": 210, "end_line": 214, "label": "Share: link, QR, address" },
+        { "path": "README.md", "line": 212, "end_line": 216, "label": "Share: link, QR, address" },
         { "path": "src/share.ts", "line": 3, "end_line": 21, "label": "https address, ithaca:// link" }
       ]
     },
@@ -165,7 +165,7 @@
       "sources": [
         { "path": "src/jobs.ts", "line": 189, "end_line": 261, "label": "Runner.start: one run at a time" },
         { "path": "src/jobs.ts", "line": 314, "end_line": 340, "label": "decide: Approve writes one book" },
-        { "path": "src/web.tsx", "line": 1117, "end_line": 1171, "label": "Read, Approve, Reject: owner only" }
+        { "path": "src/web.tsx", "line": 1127, "end_line": 1180, "label": "Read, Approve, Reject: owner only" }
       ]
     },
     {
@@ -247,7 +247,7 @@
       "dot": "rose", "title": "Trust boundaries",
       "items": [
         "Home network: compose publishes :8800 (Ithaca) and :8801 (owner pages) on one address (127.0.0.1 by default), never 0.0.0.0",
-        "Internet: friends reach :8800 only through the owner's HTTPS proxy or tunnel; owner pages refuse anything not from home, unless Owner pages from anywhere is on",
+        "Internet: friends reach :8800 only through the owner's HTTPS proxy or tunnel; Settings and Automations refuse anything not from home, unless Settings from anywhere is on",
         "Athena container: API keys live in settings.json (mode 600, umask 077), or come from <NAME>_FILE and stay in memory; it runs as 99:100",
         "Viewers' Plex tokens: SHA-256 hashes in PlexGate's cache; only the owner's is saved, to read the share list",
         "Third-party AI gets the request text and library titles; a local model keeps them on the LAN",
