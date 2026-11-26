@@ -17,3 +17,6 @@ docs/scans/
 CLAUDE.md
 AGENTS.md
 .impeccable/
+
+# Session handoffs (local)
+docs/handoffs/
