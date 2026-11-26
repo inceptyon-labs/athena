@@ -1,6 +1,6 @@
 import type { AbsBook, AbsChapter } from '../abs';
 import { isNumbered } from '../chapters';
-import { CLIP_SECONDS, chapterClips, ffmpeg, hasFfmpeg } from '../clips';
+import { CLIP_SECONDS, chapterClips, clipLength, ffmpeg, hasFfmpeg } from '../clips';
 import type { Job, JobContext, RunItem } from '../jobs';
 import { cost } from '../prices';
 import { rename, same } from '../rename';
@@ -10,8 +10,11 @@ import { length, lookUp, preview, storeName, undoRename } from './chapter-names'
 /** How many books a check looks at at once: each is a read and up to ten Audible lookups. */
 const AT_ONCE = 4;
 
-/** A chapter as a reading proposes it: its new title, and what was heard at its start, for the owner to judge. */
-export type Heard = AbsChapter & { heard: string };
+/**
+ * A chapter as a reading proposes it: its new title, and what was heard just before its mark and at its start, for the
+ * owner to judge.
+ */
+export type Heard = AbsChapter & { lead?: string; heard: string };
 
 /**
  * For books whose chapters are only numbered and that no Audible store can name: cuts the first seconds of each chapter
@@ -158,7 +161,7 @@ async function check(ctx: JobContext, listed: AbsBook) {
 			lengthDiffers: 'Audible’s edition is a different length.',
 		}[outcome.kind];
 	}
-	const seconds = chapters.reduce((sum, chapter) => sum + Math.min(CLIP_SECONDS, chapter.end - chapter.start), 0);
+	const seconds = chapters.reduce((sum, chapter) => sum + clipLength(chapter), 0);
 	const speech = ctx.speech;
 	const estimate = speech ? (speech.perHour ? `, about ${price((seconds / 3600) * speech.perHour)} with ${speech.name}` : `, free with ${speech.name}`) : '';
 	ctx.record({
@@ -193,23 +196,32 @@ async function read(ctx: JobContext, plan: NonNullable<JobContext['plan']>) {
 				ctx.record({ item: id, title, outcome: 'changed', detail: 'Left alone.', before });
 			} else {
 				const clips = await chapterClips(ctx.abs, book, book.chapters, { format: speech.format, signal: ctx.signal, cutter });
-				const heard = await speech.transcribe(clips, ctx.signal);
+				const texts = await speech.transcribe(clips, ctx.signal);
+				const leads = book.chapters.map(() => '');
+				const heard = book.chapters.map(() => '');
+				for (const [index, clip] of clips.entries()) (clip.lead ? leads : heard)[clip.chapter] = texts[index] ?? '';
 				const seconds = clips.reduce((sum, clip) => sum + clip.seconds, 0);
 				const answer = await ai.titles({
 					book: book.title,
 					author: book.author,
-					chapters: book.chapters.map((chapter, index) => ({ now: chapter.title, heard: heard[index] ?? '' })),
+					chapters: book.chapters.map((chapter, index) => ({ now: chapter.title, before: leads[index] ?? '', heard: heard[index] ?? '' })),
 				});
+				const cut = clips.flatMap((clip) => (clip.error && !clip.lead ? [clip.chapter + 1] : []));
+				// A chapter whose opening couldn't be cut keeps its title, whatever the model made of its lead-in.
 				const after: Heard[] = book.chapters.map((chapter, index) => ({
 					...chapter,
-					title: answer.titles[index] ?? chapter.title,
+					title: (cut.includes(index + 1) ? null : answer.titles[index]) ?? chapter.title,
+					lead: leads[index] ?? '',
 					heard: heard[index] ?? '',
 				}));
 				const titles = after.map((chapter) => chapter.title);
 				const spent = (seconds / 3600) * speech.perHour;
 				const tidy = cost(ai.by, answer.usage);
-				const paid = `Read ${length(seconds)} with ${speech.name} (${spent ? price(spent) : 'free'}), titled by ${ai.by}${tidy === null ? '' : ` (${price(tidy)})`}.`;
-				const outcome = named(answer.titles, book.title) ? 'proposed' : titles.some((each, index) => each !== before[index]) ? 'numbers' : 'noTitles';
+				const damaged = cut.length
+					? ` ${cut.length === 1 ? `Chapter ${cut[0]}` : `Chapters ${cut.join(', ')}`} couldn't be cut from the audio (${clips.find((clip) => clip.error && !clip.lead)?.error}), so ${cut.length === 1 ? 'it keeps its title' : 'they keep their titles'}.`
+					: '';
+				const paid = `Read ${length(seconds)} with ${speech.name} (${spent ? price(spent) : 'free'}), titled by ${ai.by}${tidy === null ? '' : ` (${price(tidy)})`}.${damaged}`;
+				const outcome = named(titles, book.title) ? 'proposed' : titles.some((each, index) => each !== before[index]) ? 'numbers' : 'noTitles';
 				const detail = outcome === 'noTitles' ? paid : `${preview(before, titles)}. ${paid}`;
 				ctx.record({ item: id, title, outcome, detail, before, ...(outcome === 'noTitles' ? {} : { after }) });
 			}

@@ -141,3 +141,26 @@ test("a Describe It is two requests with the library; with Jev, only the suggest
 	expect(withJev).toBeCloseTo((29_000 * 2 + 400 * 10 + 25_000 * 0.042) / 1e6, 6);
 	expect(perDescribeIt('local:llama', TYPICAL, false)).toBe(0);
 });
+
+describe('titles from the audio, through an OpenAI-style provider', () => {
+	test('the titles prompt goes with its own schema, and titles come back by chapter number', async () => {
+		const content = JSON.stringify({
+			titles: [
+				{ chapter: 2, title: ' Chapter 1: The Boy Who Lived ' },
+				{ chapter: 1, title: 'Opening Credits' },
+			],
+		});
+		const { fetcher, sent } = server(content, { prompt_tokens: 500, completion_tokens: 30 });
+		const ai = compat(providerOf('openai'), 'gpt-6-luna', { key: 'sk-test', base: 'https://api.openai.com/v1', fetcher });
+		const chapters = [
+			{ now: '01', before: '', heard: 'This is Audible.' },
+			{ now: '02', before: 'Harry Potter.', heard: 'Chapter one. The Boy Who Lived.' },
+		];
+		const outcome = await ai.titles?.({ book: 'Harry Potter', author: 'J.K. Rowling', chapters });
+		expect(outcome?.titles).toEqual(['Opening Credits', 'Chapter 1: The Boy Who Lived']);
+		expect(outcome?.usage.input_tokens).toBe(500);
+		const body = sent[0]?.body as { messages: { content: string }[]; response_format: { json_schema: { name: string } } };
+		expect(body.response_format.json_schema.name).toBe('titles');
+		expect(body.messages[1]?.content).toContain('Chapter 2. Now "02". Before: "Harry Potter.". Heard: "Chapter one. The Boy Who Lived."');
+	});
+});

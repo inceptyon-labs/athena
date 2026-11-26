@@ -1502,7 +1502,10 @@ export function mountWeb(app: Hono, web: Web) {
 						<tr class={chapter.title === before[index] ? 'same' : undefined}>
 							<td>{before[index]}</td>
 							<td>{chapter.title}</td>
-							<td class="heard">{chapter.heard || '(nothing)'}</td>
+							<td class="heard">
+								{chapter.lead && <span class="lead">…{chapter.lead} </span>}
+								{chapter.heard || '(nothing)'}
+							</td>
 						</tr>
 					))}
 				</tbody>

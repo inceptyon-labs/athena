@@ -111,8 +111,12 @@ export function whisperModel(): string | null {
 /** A model's name as people know it, such as `base.en`. */
 export const whisperName = (path: string) => basename(path).replace(/^ggml-/, '').replace(/\.bin$/, '');
 
-/** whisper.cpp on this machine: free, and as quick as its CPU. Reads every clip in one go, loading the model once. */
-export function whisper(model: string, threads = Math.max(1, Math.min(8, cpus().length - 1))): Speech {
+/**
+ * whisper.cpp on this machine: free, and as quick as its CPU. Reads every clip in one go, loading the model once. `cli`
+ * is where whisper-cli is, when it isn't on the PATH.
+ */
+export function whisper(model: string, options: { threads?: number; cli?: string } = {}): Speech {
+	const threads = options.threads ?? Math.max(1, Math.min(8, cpus().length - 1));
 	return {
 		id: 'whisper',
 		name: `Whisper ${whisperName(model)}`,
@@ -123,22 +127,33 @@ export function whisper(model: string, threads = Math.max(1, Math.min(8, cpus().
 			if (heard.length === 0) return clips.map(() => '');
 			const dir = await mkdtemp(join(tmpdir(), 'athena-whisper-'));
 			try {
+				// Named by place in the list: a chapter's lead-in and opening are two clips.
 				const files = await Promise.all(
-					heard.map(async (clip) => {
-						const file = join(dir, `${String(clip.chapter).padStart(4, '0')}.wav`);
+					heard.map(async (clip, index) => {
+						const file = join(dir, `${String(index).padStart(5, '0')}.wav`);
 						await writeFile(file, clip.audio);
 						return file;
 					}),
 				);
 				const english = whisperName(model).includes('.en');
 				const child = Bun.spawn(
-					['whisper-cli', '-m', model, '-t', String(threads), '-np', '-nt', '-otxt', ...(english ? [] : ['-l', 'auto']), ...files.flatMap((file) => ['-f', file])],
+					[options.cli ?? 'whisper-cli', '-m', model, '-t', String(threads), '-np', '-nt', '-otxt', ...(english ? [] : ['-l', 'auto']), ...files.flatMap((file) => ['-f', file])],
 					{ stdout: 'ignore', stderr: 'pipe', signal },
 				);
 				const [err, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
 				if (signal?.aborted) throw new SpeechError('Stopped.');
-				if (code !== 0) throw new SpeechError(`Whisper failed: ${err.trim().split('\n').at(-1)?.slice(0, 200) ?? `exit ${code}`}`);
-				const texts = await Promise.all(files.map(async (file) => (await readFile(`${file}.txt`, 'utf8')).replace(/\s+/g, ' ').trim()));
+				// A clip Whisper couldn't read has no transcript and counts as silence; only none at all is a failure.
+				const texts = await Promise.all(
+					files.map((file) =>
+						readFile(`${file}.txt`, 'utf8').then(
+							// Whisper's notes on what it heard instead of words, such as "[BLANK_AUDIO]" and "[ Silence ]".
+							(text) => text.replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim(),
+							() => null,
+						),
+					),
+				);
+				if (code !== 0 && texts.every((text) => text === null))
+					throw new SpeechError(`Whisper failed: ${err.trim().split('\n').at(-1)?.slice(0, 200) ?? `exit ${code}`}`);
 				return clips.map((clip) => texts[heard.indexOf(clip)] ?? '');
 			} finally {
 				await rm(dir, { recursive: true, force: true });

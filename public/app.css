@@ -569,6 +569,11 @@ details.proposal td.heard {
 	font-style: italic;
 }
 
+/* What was heard just before the chapter's mark: usually the chapter before. */
+details.proposal td.heard .lead {
+	opacity: 0.6;
+}
+
 /* By person */
 
 .people {

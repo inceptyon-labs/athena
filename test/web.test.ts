@@ -470,13 +470,13 @@ describe('automations', () => {
 		const check = runner.runs(1)[0]?.id;
 		const found = await (await get(`/automations/runs/${check}`, cookie)).text();
 		expect(found).toContain('Can be read');
-		expect(found).toContain('about 0.2¢ with ElevenLabs Scribe');
+		expect(found).toContain('43s of audio to read, about 0.2¢ with ElevenLabs Scribe');
 
 		const reading = await post(`/automations/runs/${check}/next`, { item: 'emma' }, cookie);
 		await runner.idle();
 		const read = runner.runs(1)[0]?.id;
 		expect(reading.headers.get('Location')).toBe(`/automations/runs/${read}`);
-		expect(scribed.map((form) => form.get('model_id'))).toEqual(['scribe_v3', 'scribe_v3']);
+		expect(scribed.map((form) => form.get('model_id'))).toEqual(['scribe_v3', 'scribe_v3', 'scribe_v3']);
 		const proposal = await (await get(`/automations/runs/${read}`, cookie)).text();
 		expect(proposal).toContain('1 book waits for your approval below');
 		expect(proposal).toContain('Chapter two. Mr Knightley.');

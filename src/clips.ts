@@ -5,13 +5,28 @@ import type { AbsBook, AbsChapter, AbsTrack, Audiobookshelf } from './abs';
  * with range requests, so only a little of each file is read. Only the speech image has ffmpeg.
  */
 
-/** A chapter's opening, mono at 16 kHz: MP3 to send to ElevenLabs, WAV for Whisper. */
-export type Clip = { chapter: number; audio: Uint8Array<ArrayBuffer>; seconds: number };
+/**
+ * A piece of a chapter, mono at 16 kHz: MP3 to send to ElevenLabs, WAV for Whisper. `lead` is the few seconds before
+ * the chapter's mark; otherwise it's the chapter's opening from the mark. Empty, with why, when that part of the book
+ * couldn't be cut, such as a damaged file.
+ */
+export type Clip = { chapter: number; lead: boolean; audio: Uint8Array<ArrayBuffer>; seconds: number; error?: string };
 
 export type ClipFormat = 'mp3' | 'wav';
 
 /** How much of each chapter to read: long enough for "Part Two. Chapter Eleven. The Long Night." after a pause. */
 export const CLIP_SECONDS = 20;
+/**
+ * How much before each chapter's mark is also read, on its own: a mark a moment late (common where Audible's marks
+ * don't line up) would otherwise cut off the chapter's number as it's read. On its own, since Whisper stops at the
+ * pause between chapters and would miss the opening.
+ */
+export const LEAD_IN = 3;
+
+/** The seconds read for a chapter: its lead-in, then its first `CLIP_SECONDS` or all of it. */
+export const clipLength = (chapter: AbsChapter) => Math.min(LEAD_IN, chapter.start) + opening(chapter);
+
+const opening = (chapter: AbsChapter) => Math.max(0.5, Math.min(CLIP_SECONDS, chapter.end - chapter.start));
 
 /** How many ffmpegs run at once. */
 const AT_ONCE = 3;
@@ -57,32 +72,40 @@ export function locate(book: Pick<AbsBook, 'tracks'>, at: number, seconds: numbe
 	return pieces;
 }
 
-/** The first `seconds` of each chapter, cut a few at a time. Throws on the first that fails. */
+/**
+ * Each chapter's lead-in and opening, cut a few at a time, in chapter order. A part that can't be cut is left empty
+ * with why; only when no opening can be does it throw.
+ */
 export async function chapterClips(
 	abs: Audiobookshelf,
 	book: Pick<AbsBook, 'tracks'>,
 	chapters: AbsChapter[],
-	options: { format: ClipFormat; seconds?: number; signal?: AbortSignal; cutter?: Cutter },
+	options: { format: ClipFormat; signal?: AbortSignal; cutter?: Cutter },
 ): Promise<Clip[]> {
+	if (book.tracks.length === 0) throw new Error('Audiobookshelf lists no audio files for this book.');
 	const cut = options.cutter ?? ffmpeg;
-	const want = options.seconds ?? CLIP_SECONDS;
 	const encode =
 		options.format === 'mp3' ? ['-c:a', 'libmp3lame', '-b:a', '48k', '-f', 'mp3'] : ['-c:a', 'pcm_s16le', '-f', 'wav'];
-	const clips: Clip[] = new Array(chapters.length);
-	// The first cut that fails stops the others.
-	const failed = new AbortController();
-	const signal = options.signal ? AbortSignal.any([options.signal, failed.signal]) : failed.signal;
+	const signal = options.signal;
+	const parts = chapters.flatMap((chapter, index) => {
+		const lead = Math.min(LEAD_IN, chapter.start);
+		return [
+			...(lead >= 0.5 ? [{ chapter: index, lead: true, from: chapter.start - lead, seconds: lead }] : []),
+			{ chapter: index, lead: false, from: chapter.start, seconds: opening(chapter) },
+		];
+	});
+	const clips: Clip[] = new Array(parts.length);
 	let next = 0;
 	const worker = async () => {
-		while (next < chapters.length) {
-			if (signal.aborted) throw new Error('Stopped.');
-			const index = next++;
-			const chapter = chapters[index] as AbsChapter;
-			const pieces = locate(book, chapter.start, Math.max(0.5, Math.min(want, chapter.end - chapter.start)));
-			if (book.tracks.length === 0) throw new Error('Audiobookshelf lists no audio files for this book.');
+		while (next < parts.length) {
+			if (signal?.aborted) throw new Error('Stopped.');
+			const at = next++;
+			const part = parts[at] as (typeof parts)[number];
+			const pieces = locate(book, part.from, part.seconds);
+			const empty = { chapter: part.chapter, lead: part.lead, audio: new Uint8Array(), seconds: 0 };
 			// A chapter of no length, such as an empty last one, has nothing to hear.
 			if (pieces.length === 0) {
-				clips[index] = { chapter: index, audio: new Uint8Array(), seconds: 0 };
+				clips[at] = empty;
 				continue;
 			}
 			// Each piece is its own input, read by range requests, giving up on a read that stalls for 30 s.
@@ -94,14 +117,18 @@ export async function chapterClips(
 				pieces.length === 1
 					? ['-vn']
 					: ['-filter_complex', `${pieces.map((_, n) => `[${n}:a]`).join('')}concat=n=${pieces.length}:v=0:a=1[a]`, '-map', '[a]'];
-			const audio = await cut([...inputs, ...join, '-ac', '1', '-ar', '16000', ...encode, 'pipe:1'], signal);
-			if (audio.length === 0) throw new Error(`ffmpeg cut nothing from chapter ${index + 1}.`);
-			clips[index] = { chapter: index, audio, seconds: pieces.reduce((sum, piece) => sum + piece.seconds, 0) };
+			try {
+				const audio = await cut([...inputs, ...join, '-ac', '1', '-ar', '16000', ...encode, 'pipe:1'], signal);
+				if (audio.length === 0) throw new Error('ffmpeg cut nothing.');
+				clips[at] = { ...empty, audio, seconds: pieces.reduce((sum, piece) => sum + piece.seconds, 0) };
+			} catch (error) {
+				if (signal?.aborted) throw error;
+				clips[at] = { ...empty, error: error instanceof Error ? error.message : String(error) };
+			}
 		}
 	};
-	await Promise.all(Array.from({ length: Math.min(AT_ONCE, chapters.length) }, worker)).catch((error: unknown) => {
-		failed.abort();
-		throw error;
-	});
+	await Promise.all(Array.from({ length: Math.min(AT_ONCE, parts.length) }, worker));
+	const openings = clips.filter((clip) => !clip.lead && (clip.error || clip.audio.length > 0));
+	if (openings.length > 0 && openings.every((clip) => clip.error)) throw new Error(openings[0]?.error ?? "ffmpeg couldn't cut the audio.");
 	return clips;
 }
