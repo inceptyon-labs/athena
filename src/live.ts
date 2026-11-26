@@ -5,6 +5,7 @@ import { type AI, claude } from './pick';
 import { PlexGate, PlexTV } from './plex';
 import { keyName, type ProviderId, providerOf } from './providers';
 import { type Effective, Settings } from './settings';
+import { elevenLabs, type Speech, whisper, whisperModel } from './speech';
 
 /** The model that answers, or null until its key (or a local server's address and model) is set. */
 export function makeAI(now: Effective, fetcher: typeof fetch = fetch): AI | null {
@@ -34,6 +35,8 @@ export class Live {
 	audibleRegion = 'us';
 	/** Jobs that run by themselves every hour. */
 	autoJobs: string[] = [];
+	/** Speech to text for Titles from the audio: null until chosen and set up. */
+	speech: Speech | null = null;
 	readonly plexTV: PlexTV;
 	private where: string | null = null;
 
@@ -62,6 +65,8 @@ export class Live {
 		this.abs = now.absURL && now.absKey ? new Audiobookshelf(now.absURL, now.absKey, this.fetcher) : null;
 		this.audibleRegion = now.audibleRegion;
 		this.autoJobs = now.autoJobs;
+		const model = now.speech === 'whisper' ? whisperModel() : null;
+		this.speech = model ? whisper(model) : now.speech === 'elevenlabs' && now.elevenlabsKey ? elevenLabs(now.elevenlabsKey, { fetcher: this.fetcher }) : null;
 		const where = now.plexURL ? `url ${now.plexURL}` : now.server ? `id ${now.server.id}` : null;
 		if (where !== this.where) {
 			this.where = where;

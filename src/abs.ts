@@ -1,6 +1,9 @@
 /** A book's chapter, as Audiobookshelf keeps it: start and end in seconds. */
 export type AbsChapter = { id: number; start: number; end: number; title: string };
 
+/** One of a book's audio files, where it falls in the book, and its path for streaming (`/api/items/<id>/file/<ino>`). */
+export type AbsTrack = { startOffset: number; duration: number; contentUrl: string };
+
 export type AbsBook = {
 	id: string;
 	title: string;
@@ -14,6 +17,8 @@ export type AbsBook = {
 	updatedAt: number | null;
 	/** Only from `book`. */
 	chapters: AbsChapter[];
+	/** Only from `book`. */
+	tracks: AbsTrack[];
 };
 
 export type AbsLibrary = { id: string; name: string; mediaType: string };
@@ -58,6 +63,7 @@ type RawBook = {
 		duration?: number;
 		numChapters?: number;
 		chapters?: AbsChapter[];
+		tracks?: AbsTrack[];
 		metadata?: { title?: string; authorName?: string | null; asin?: string | null };
 	};
 };
@@ -72,6 +78,7 @@ function bookOf(raw: RawBook): AbsBook {
 		duration: raw.media?.duration ?? 0,
 		numChapters: raw.media?.numChapters ?? raw.media?.chapters?.length ?? null,
 		chapters: raw.media?.chapters ?? [],
+		tracks: (raw.media?.tracks ?? []).map(({ startOffset, duration, contentUrl }) => ({ startOffset, duration, contentUrl })),
 		updatedAt: raw.updatedAt ?? null,
 	};
 }
@@ -142,6 +149,14 @@ export class Audiobookshelf {
 	/** One book, with its chapters. */
 	async book(id: string): Promise<AbsBook> {
 		return bookOf(await this.get<RawBook>(`/api/items/${encodeURIComponent(id)}`, { expanded: '1' }));
+	}
+
+	/**
+	 * Where ffmpeg reads one of a book's files, with the header that lets it in: the API key, so never log either.
+	 * Audiobookshelf answers range requests, so ffmpeg seeks without reading the whole file.
+	 */
+	trackInput(track: AbsTrack): { url: string; headers: string } {
+		return { url: `${this.url}${track.contentUrl}`, headers: `Authorization: Bearer ${this.key}\r\n` };
 	}
 
 	audibleChapters(asin: string, region: string): Promise<AudibleChapters> {

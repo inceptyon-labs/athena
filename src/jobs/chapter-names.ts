@@ -1,6 +1,7 @@
 import type { AbsBook, AbsChapter, Audiobookshelf } from '../abs';
 import { isNumbered, match, type Outcome } from '../chapters';
-import type { Job, JobContext } from '../jobs';
+import type { Job, JobContext, RunItem } from '../jobs';
+import { oneAtATime, rename, same } from '../rename';
 import { AUDIBLE_REGIONS } from '../settings';
 
 /** How many books are checked at once: each is one or two requests, and the lookups go on to Audnexus. */
@@ -78,6 +79,8 @@ export const chapterNames: Job = {
 		},
 	],
 	undoable: ['renamed', 'unsure'],
+	next: { from: 'ready', verb: 'Rename', hint: 'Each book is read again first, and left alone if it changed.' },
+	checks: 'A check lists what it would rename and changes nothing.',
 	async run(ctx) {
 		const libraries = (await ctx.abs.libraries()).filter((library) => library.mediaType === 'book');
 		const books: AbsBook[] = [];
@@ -97,7 +100,7 @@ export const chapterNames: Job = {
 				const book = books[next++] as AbsBook;
 				try {
 					const planned = ctx.plan?.[book.id];
-					const settled = planned ? await rename(ctx, book, planned) : await check(ctx, book);
+					const settled = planned ? await renameAsChecked(ctx, book, planned) : await check(ctx, book);
 					if (settled) ctx.state.set(seenKey(book.id), JSON.stringify({ print: fingerprint(book, ctx.region), at: ctx.now() }));
 				} catch (error) {
 					ctx.record({
@@ -113,7 +116,12 @@ export const chapterNames: Job = {
 		await Promise.all(Array.from({ length: AT_ONCE }, worker));
 	},
 
-	async undo(abs, item) {
+	undo: undoRename,
+};
+
+/** Puts a renamed book's old titles back, if its chapters are still exactly what the rename wrote. */
+export function undoRename(abs: Audiobookshelf, item: RunItem): Promise<'changed' | null> {
+	return oneAtATime(item.item, async () => {
 		const after = item.after as AbsChapter[] | undefined;
 		const before = item.before as string[] | undefined;
 		if (!after || !before || before.length !== after.length) return 'changed';
@@ -124,8 +132,8 @@ export const chapterNames: Job = {
 			book.chapters.map((chapter, index) => ({ ...chapter, title: before[index] ?? chapter.title })),
 		);
 		return null;
-	},
-};
+	});
+}
 
 const seenKey = (id: string) => `seen:${id}`;
 
@@ -148,60 +156,20 @@ function unchanged(ctx: JobContext, book: AbsBook) {
 	}
 }
 
-/** Exactly the same chapters: ids, starts, ends and titles. */
-function same(a: AbsChapter[], b: AbsChapter[]) {
-	return (
-		a.length === b.length &&
-		a.every((chapter, index) => {
-			const other = b[index];
-			return (
-				other !== undefined &&
-				chapter.id === other.id &&
-				chapter.start === other.start &&
-				chapter.end === other.end &&
-				chapter.title === other.title
-			);
-		})
-	);
-}
-
-/**
- * Saves `after` over a book whose chapters are still `expected`, read again just before, and reads it back. Resolves
- * to false, saving nothing, once Stop was pressed or the chapters changed.
- */
+/** Saves `after` over a book whose chapters are still `expected`, and logs how it went. Resolves to whether it took. */
 async function save(ctx: JobContext, book: AbsBook, expected: AbsChapter[], after: AbsChapter[], detail: string) {
 	const before = expected.map((chapter) => chapter.title);
-	const now = await ctx.abs.book(book.id);
-	if (!same(now.chapters, expected)) {
-		ctx.record({ item: book.id, title: book.title, outcome: 'changed', detail: 'Left alone.', before });
-		return false;
-	}
-	if (ctx.signal.aborted) return false;
-	// A save whose answer is lost may still have been applied, so the read-back decides, and Undo is kept until it does.
-	let failed: string | null = null;
-	try {
-		await ctx.abs.saveChapters(book.id, after);
-	} catch (error) {
-		failed = error instanceof Error ? error.message : String(error);
-	}
-	let saved: AbsBook;
-	try {
-		saved = await ctx.abs.book(book.id);
-	} catch {
-		ctx.record({ item: book.id, title: book.title, outcome: 'unsure', detail, before, after });
-		return false;
-	}
-	if (same(saved.chapters, after)) {
-		ctx.record({ item: book.id, title: book.title, outcome: 'renamed', detail, before, after });
-		return true;
-	}
-	const why = same(saved.chapters, expected) && failed ? failed : "Audiobookshelf didn't keep the new names.";
-	ctx.record({ item: book.id, title: book.title, outcome: 'error', detail: why, before });
-	return false;
+	const result = await rename(ctx.abs, book.id, expected, after, ctx.signal);
+	if (result === 'stopped') return false;
+	if (result === 'changed') ctx.record({ item: book.id, title: book.title, outcome: 'changed', detail: 'Left alone.', before });
+	else if (result === 'unsure') ctx.record({ item: book.id, title: book.title, outcome: 'unsure', detail, before, after });
+	else if (result === 'renamed') ctx.record({ item: book.id, title: book.title, outcome: 'renamed', detail, before, after });
+	else ctx.record({ item: book.id, title: book.title, outcome: 'error', detail: result.error, before });
+	return result === 'renamed';
 }
 
 /** Renames a book as a check showed it, if it hasn't changed since. */
-async function rename(ctx: JobContext, listed: AbsBook, planned: { before: unknown; after: unknown }) {
+async function renameAsChecked(ctx: JobContext, listed: AbsBook, planned: { before: unknown; after: unknown }) {
 	const after = planned.after as AbsChapter[] | undefined;
 	const before = planned.before as string[] | undefined;
 	if (!after || !before || before.length !== after.length) return false;
@@ -246,7 +214,7 @@ export function storeOrder(chosen: string): string[] {
 	return [...new Set([chosen, 'uk', 'ca', ...AUDIBLE_REGIONS.map((region) => region.id)])];
 }
 
-const storeName = (id: string) => `Audible ${id.toUpperCase()}`;
+export const storeName = (id: string) => `Audible ${id.toUpperCase()}`;
 
 /**
  * Audible's fit for a book, from the chosen store or, when it has nothing that lines up, the first other store that
@@ -315,7 +283,7 @@ export function preview(before: string[], after: string[]) {
 	return `${parts.join(', ')} (${changes.length} of ${after.length} titles change)`;
 }
 
-function length(seconds: number) {
+export function length(seconds: number) {
 	const whole = Math.round(seconds);
 	const h = Math.floor(whole / 3600);
 	const m = Math.floor((whole % 3600) / 60);

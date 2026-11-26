@@ -1,6 +1,13 @@
 services:
   athena:
-    build: .
+    build:
+      context: .
+      # Titles from the audio needs ffmpeg, and reads with Whisper on this machine with whisper.cpp: both are only in
+      # the speech image. Set ATHENA_TARGET=speech in .env to build it (about 1.2 GB, a few minutes the first time).
+      target: ${ATHENA_TARGET:-athena}
+      args:
+        # The speech image's Whisper model: base.en is quicker, small.en more accurate.
+        WHISPER_MODEL: ${WHISPER_MODEL:-small.en}
     container_name: athena
     restart: unless-stopped
     ports:
@@ -24,6 +31,7 @@ services:
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       ABS_URL: ${ABS_URL:-}
       ABS_API_KEY: ${ABS_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
     labels:
       net.unraid.docker.webui: "http://[IP]:[PORT:8800]/"
       net.unraid.docker.icon: "https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid-icon.png"

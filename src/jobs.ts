@@ -1,7 +1,12 @@
 import { Database } from 'bun:sqlite';
 import type { Audiobookshelf } from './abs';
+import { audioTitles } from './jobs/audio-titles';
 import { chapterNames } from './jobs/chapter-names';
 import { log, warn } from './log';
+import type { Cutter } from './clips';
+import type { AI } from './pick';
+import { oneAtATime } from './rename';
+import type { Speech } from './speech';
 
 /** What a job found or did for one item, kept in the run log. */
 export type ItemOutcome = {
@@ -22,6 +27,11 @@ export interface JobContext {
 	abs: Audiobookshelf;
 	/** Audible's store for Audnexus lookups. */
 	region: string;
+	/** Speech to text, and the AI model the owner chose, for jobs that read the audio; null until set up. */
+	speech: Speech | null;
+	ai: AI | null;
+	/** What cuts clips from the audio: ffmpeg when this image has it. */
+	cutter?: Cutter;
 	/** Check and log only; change nothing. */
 	dryRun: boolean;
 	/**
@@ -51,12 +61,22 @@ export interface Job {
 	outcomes: { id: string; label: string; note?: string; action?: string }[];
 	/** The outcomes Undo applies to, if the job can undo what it did. */
 	undoable?: string[];
+	/** What a check's results lead to: the outcome whose items a second run takes on, and its button. */
+	next?: { from: string; verb: string; hint: string };
+	/** What Check now does, in a line under the button. */
+	checks: string;
+	/** False for a job that never runs by itself, such as one that costs money each time. */
+	scheduled?: boolean;
 	run(ctx: JobContext): Promise<void>;
 	/** Puts one item back as `before` had it. Resolves to `changed` when it changed since, so it was left alone. */
 	undo?(abs: Audiobookshelf, item: RunItem): Promise<'changed' | null>;
+	/** The outcomes held for the owner's approval, if any: Approve calls `apply`, Reject only logs it. */
+	approvable?: string[];
+	/** Writes one approved item, reading it again first. Resolves to its new outcome and line for the log. */
+	apply?(abs: Audiobookshelf, item: RunItem): Promise<{ outcome: string; detail: string }>;
 }
 
-export const JOBS: Job[] = [chapterNames];
+export const JOBS: Job[] = [chapterNames, audioTitles];
 
 /** How often a job set to run by itself runs. */
 export const EVERY = 60 * 60_000;
@@ -94,7 +114,14 @@ type RunRow = {
 };
 
 /** Where a job's settings and the Audiobookshelf connection come from, read at each run. */
-export type Connection = () => { abs: Audiobookshelf | null; region: string; auto: (jobId: string) => boolean };
+export type Connection = () => {
+	abs: Audiobookshelf | null;
+	region: string;
+	auto: (jobId: string) => boolean;
+	speech?: Speech | null;
+	ai?: AI | null;
+	cutter?: Cutter;
+};
 
 /**
  * Runs jobs one at a time in the background and logs each run and what it found, in a SQLite file of its own beside
@@ -166,7 +193,7 @@ export class Runner {
 		const job = this.job(jobId);
 		if (!job) return 'unknown';
 		if (this.active) return 'busy';
-		const { abs, region } = this.connection();
+		const { abs, region, speech, ai, cutter } = this.connection();
 		if (!abs) return 'unconnected';
 		const trigger = options.trigger ?? 'manual';
 		const { id } = this.db
@@ -176,6 +203,9 @@ export class Runner {
 		const ctx: JobContext = {
 			abs,
 			region,
+			speech: speech ?? null,
+			ai: ai ?? null,
+			...(cutter ? { cutter } : {}),
 			dryRun: options.dryRun,
 			plan: options.plan ?? null,
 			incremental: trigger === 'schedule',
@@ -245,7 +275,7 @@ export class Runner {
 		const { abs, auto } = this.connection();
 		if (!abs || this.active) return;
 		for (const job of this.jobs) {
-			if (!auto(job.id)) continue;
+			if (job.scheduled === false || !auto(job.id)) continue;
 			const last = this.db
 				.query(`SELECT started FROM runs WHERE job = ? AND trigger = 'schedule' ORDER BY id DESC LIMIT 1`)
 				.get(job.id) as { started: number } | null;
@@ -275,6 +305,38 @@ export class Runner {
 		if (problem === null)
 			this.db.query('UPDATE run_items SET undone = 1 WHERE run = ? AND item = ? AND outcome = ?').run(runId, itemId, item.outcome);
 		return problem;
+	}
+
+	/**
+	 * The owner's answer on one item held for approval: Approve writes it (the job reads it again first), Reject logs
+	 * it and changes nothing. Resolves to why it couldn't, or null once done.
+	 */
+	decide(runId: number, itemId: string, approve: boolean): Promise<'nothing' | 'unconnected' | 'changed' | null> {
+		// One decision per book at a time, each reading the item afresh: a Reject pressed during an Approve waits for it.
+		return oneAtATime(`decide:${itemId}`, () => this.settleDecision(runId, itemId, approve));
+	}
+
+	private async settleDecision(runId: number, itemId: string, approve: boolean): Promise<'nothing' | 'unconnected' | 'changed' | null> {
+		const run = this.run(runId);
+		const job = run ? this.job(run.job) : null;
+		if (!run || !job?.apply || !job.approvable) return 'nothing';
+		const approvable = job.approvable;
+		const item = this.items(runId).find((each) => each.item === itemId && approvable.includes(each.outcome));
+		if (!item) return 'nothing';
+		const settle = (outcome: string, detail: string) =>
+			this.db
+				.query('UPDATE run_items SET outcome = ?, detail = ?, at = ? WHERE run = ? AND item = ? AND outcome = ?')
+				.run(outcome, detail, this.now(), runId, itemId, item.outcome);
+		if (!approve) {
+			settle('rejected', item.detail);
+			return null;
+		}
+		const { abs } = this.connection();
+		if (!abs) return 'unconnected';
+		// Chapter writes also go one at a time per book (`src/rename.ts`), so an approval in another run finds it changed.
+		const result = await job.apply(abs, item);
+		settle(result.outcome, result.detail);
+		return result.outcome === 'changed' ? 'changed' : null;
 	}
 
 	run(id: number): Run | null {

@@ -11,8 +11,10 @@ import {
 	PickResult,
 	requestText,
 	SYSTEM,
+	type TitlesOutcome,
 } from './pick';
 import type { Provider } from './providers';
+import { cleanTitles, TITLES_SYSTEM, TitlesResult, titlesText } from './titles';
 
 /**
  * Every provider but Anthropic, through the OpenAI-style Chat Completions API they all offer: OpenAI, Gemini, Grok,
@@ -25,6 +27,7 @@ export const JSON_SHAPE = `Answer with only a JSON object in this shape, nothing
 {"minimums": {"critics": number or null, "audience": number or null, "imdb": number or null}, "picks": [{"id": "id from the library list", "reason": "..."}], "suggestions": [{"title": "...", "year": number or null, "discoverId": "id from the recent list, or null", "reason": "..."}]}`;
 
 const { $schema: _, ...SCHEMA } = z.toJSONSchema(PickResult);
+const { $schema: __, ...TITLES_SCHEMA } = z.toJSONSchema(TitlesResult);
 
 interface Usage {
 	prompt_tokens?: number;
@@ -90,65 +93,94 @@ export function compat(provider: Provider, model: string, options: CompatOptions
 	const local = provider.id === 'local';
 	const effort = provider.models.find((candidate) => candidate.id === model)?.effort;
 	const by = local ? `local:${model}` : model;
+
+	/**
+	 * One Chat Completions request, retried once, and its answer's JSON with what it cost. Throws a PickError when it
+	 * fails, or when the answer was paid for but can't be used.
+	 */
+	async function complete(
+		messages: { role: string; content: string }[],
+		schema: { name: string; schema: unknown },
+		timeout: number,
+	): Promise<{ json: unknown; paid: { by: string; usage: PickOutcome['usage'] } }> {
+		const body = {
+			model,
+			messages,
+			response_format:
+				provider.json === 'object' ? { type: 'json_object' } : { type: 'json_schema', json_schema: { name: schema.name, strict: true, schema: schema.schema } },
+			// Thinking counts toward the cap with most of them.
+			...(provider.cap ? { [provider.cap]: 8192 } : {}),
+			...(effort ? { reasoning_effort: effort } : {}),
+		};
+		let response: Response | null = null;
+		// One retry, as with Claude: a viewer is waiting on the other end.
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try {
+				response = await fetcher(`${options.base}/chat/completions`, {
+					method: 'POST',
+					headers: headers(options.key),
+					body: JSON.stringify(body),
+					signal: AbortSignal.timeout(timeout),
+				});
+			} catch (error) {
+				if (attempt === 0 && !local && !(error instanceof DOMException && error.name === 'TimeoutError')) continue;
+				throw new PickError(local ? "Athena couldn't reach its local model." : `Athena couldn't reach ${provider.brand}. Try again.`);
+			}
+			if (attempt === 0 && (response.status === 429 || response.status >= 500)) continue;
+			break;
+		}
+		if (!response) throw new PickError(`Athena couldn't reach ${provider.brand}. Try again.`);
+		if (!response.ok) throw new PickError(failure(provider, response.status, await response.text()));
+		const completion = (await response.json()) as Completion;
+		const choice = completion.choices?.[0];
+		const paid = { by, usage: tokens(completion.usage) };
+		if (choice?.message?.refusal) throw new PickError(`${provider.brand} declined that request.`, 502, paid);
+		if (choice?.finish_reason === 'length') throw new PickError(`${provider.brand}'s answer was cut off.`, 502, paid);
+		try {
+			return { json: answerJSON(choice?.message?.content ?? ''), paid };
+		} catch {
+			throw new PickError(`${provider.brand}'s answer wasn't the JSON Athena asked for.`, 502, paid);
+		}
+	}
+
 	return {
 		by,
 		async pick(req) {
 			const discover = discoverText(req);
-			const body = {
-				model,
-				messages: [
+			const { json, paid } = await complete(
+				[
 					{ role: 'system', content: `${SYSTEM}\n\n${JSON_SHAPE}` },
 					{ role: 'user', content: [libraryText(req), discover, requestText(req)].filter(Boolean).join('\n\n') },
 				],
-				response_format:
-					provider.json === 'object'
-						? { type: 'json_object' }
-						: { type: 'json_schema', json_schema: { name: 'picks', strict: true, schema: SCHEMA } },
-				// Thinking counts toward the cap with most of them.
-				...(provider.cap ? { [provider.cap]: 8192 } : {}),
-				...(effort ? { reasoning_effort: effort } : {}),
-			};
-			let response: Response | null = null;
-			// One retry, as with Claude: a viewer is waiting on the other end.
-			for (let attempt = 0; attempt < 2; attempt++) {
-				try {
-					response = await fetcher(`${options.base}/chat/completions`, {
-						method: 'POST',
-						headers: headers(options.key),
-						body: JSON.stringify(body),
-						// A local model on modest hardware takes a while to read a whole library.
-						signal: AbortSignal.timeout(local ? 120_000 : 45_000),
-					});
-				} catch (error) {
-					if (attempt === 0 && !local && !(error instanceof DOMException && error.name === 'TimeoutError')) continue;
-					throw new PickError(
-						local ? "Athena couldn't reach its local model." : `Athena couldn't reach ${provider.brand}. Try again.`,
-					);
-				}
-				if (attempt === 0 && (response.status === 429 || response.status >= 500)) continue;
-				break;
-			}
-			if (!response) throw new PickError(`Athena couldn't reach ${provider.brand}. Try again.`);
-			if (!response.ok) throw new PickError(failure(provider, response.status, await response.text()));
-			const completion = (await response.json()) as Completion;
-			const choice = completion.choices?.[0];
-			const paid = { by, usage: tokens(completion.usage) };
-			if (choice?.message?.refusal) throw new PickError(`${provider.brand} declined that request.`, 502, paid);
-			if (choice?.finish_reason === 'length') throw new PickError(`${provider.brand}'s answer was cut off.`, 502, paid);
-			const unusable = `${provider.brand}'s answer wasn't the JSON Athena asked for.`;
-			let parsed: ReturnType<typeof PickResult.safeParse>;
-			try {
-				parsed = PickResult.safeParse(answerJSON(choice?.message?.content ?? ''));
-			} catch {
-				throw new PickError(unusable, 502, paid);
-			}
-			if (!parsed.success) throw new PickError(unusable, 502, paid);
+				{ name: 'picks', schema: SCHEMA },
+				// A local model on modest hardware takes a while to read a whole library.
+				local ? 120_000 : 45_000,
+			);
+			const parsed = PickResult.safeParse(json);
+			if (!parsed.success) throw new PickError(`${provider.brand}'s answer wasn't the JSON Athena asked for.`, 502, paid);
 			return {
 				picks: cleanPicks(parsed.data.picks, req),
 				suggestions: cleanSuggestions(parsed.data.suggestions, req),
 				minimums: cleanMinimums(parsed.data.minimums),
-				usage: tokens(completion.usage),
+				usage: paid.usage,
 			};
+		},
+		async titles(req): Promise<TitlesOutcome> {
+			const { json, paid } = await complete(
+				[
+					{ role: 'system', content: TITLES_SYSTEM },
+					{ role: 'user', content: titlesText(req) },
+				],
+				{ name: 'titles', schema: TITLES_SCHEMA },
+				// Nobody is waiting on it.
+				180_000,
+			);
+			const parsed = TitlesResult.safeParse(json);
+			if (!parsed.success) throw new PickError(`${provider.brand}'s answer wasn't the JSON Athena asked for.`, 502, paid);
+			const cleaned = cleanTitles(parsed.data.titles, req.chapters.length);
+			if (!cleaned)
+				throw new PickError(`${provider.brand} gave ${parsed.data.titles.length} titles for ${req.chapters.length} chapters.`, 502, paid);
+			return { titles: cleaned, usage: paid.usage };
 		},
 	};
 }

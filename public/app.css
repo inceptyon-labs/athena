@@ -532,6 +532,43 @@ tr.failed td.answer {
 	color: var(--bad);
 }
 
+/* Titles from the audio: Approve and Reject side by side, and a reading's chapters folded under its line. */
+
+form.decide {
+	display: flex;
+	gap: 6px;
+	justify-content: flex-end;
+}
+
+details.proposal {
+	margin-top: 8px;
+}
+
+details.proposal summary {
+	cursor: pointer;
+	color: var(--ink-2);
+	font-size: 0.8125rem;
+}
+
+details.proposal table {
+	margin-top: 6px;
+	font-size: 0.8125rem;
+}
+
+details.proposal th,
+details.proposal td {
+	padding: 4px 8px 4px 0;
+}
+
+details.proposal tr.same td:nth-child(2) {
+	color: var(--ink-2);
+}
+
+details.proposal td.heard {
+	color: var(--ink-2);
+	font-style: italic;
+}
+
 /* By person */
 
 .people {

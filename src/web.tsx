@@ -22,7 +22,10 @@ import {
 	type ProviderId,
 	providerOf,
 } from './providers';
+import { hasFfmpeg } from './clips';
+import type { Heard } from './jobs/audio-titles';
 import { AUDIBLE_REGIONS, type Effective, mask } from './settings';
+import { SCRIBE_MODEL, whisperModel, whisperName } from './speech';
 import { publicAddress, qrSVG, shareLink } from './share';
 import type { Session, Sessions } from './sessions';
 import type { Entry, Usage } from './usage';
@@ -689,6 +692,15 @@ export function mountWeb(app: Hono, web: Web) {
 		const unchecked = run.total - run.checked;
 		const stopped = run.status === 'stopped' ? ` It was stopped before the end${unchecked > 0 ? `, with ${books(unchecked)} not looked at` : ''}.` : '';
 		const count = (outcome: string) => items.filter((item) => item.outcome === outcome).length;
+		if (run.job === 'audio-titles') {
+			if (run.dryRun) {
+				const readable = count('readable');
+				const audible = count('audible');
+				return `Checked ${books(run.checked)} ${at}. ${readable} ${readable === 1 ? 'has' : 'have'} only numbered chapters that no Audible store names${audible ? `, and ${audible} more Audible can name` : ''}. Nothing was read or changed.${stopped}`;
+			}
+			const waiting = count('proposed') + count('numbers');
+			return `Read ${books(run.checked)} ${at}. ${waiting ? `${books(waiting)} ${waiting === 1 ? 'waits' : 'wait'} for your approval below; nothing is renamed until you approve.` : 'None waits for approval.'}${stopped}`;
+		}
 		if (run.dryRun) {
 			const named = Math.max(0, run.checked - items.length);
 			const ready = count('ready');
@@ -703,6 +715,17 @@ export function mountWeb(app: Hono, web: Web) {
 		const left = items.length - renamed;
 		const who = run.trigger === 'schedule' ? 'Ran by itself' : 'Ran';
 		return `${who} ${at}, looking at ${books(run.checked)}: renamed ${renamed}${left ? `, left ${left} alone (why below)` : ''}.${stopped}`;
+	}
+
+	/** What Titles from the audio reads and writes with, or what it still needs. */
+	function titlesReady() {
+		const needs = [
+			!hasFfmpeg() && 'the speech image (ATHENA_TARGET=speech), which has ffmpeg',
+			!live.speech && 'speech to text, chosen in Settings',
+			!live.ai?.titles && 'an AI model, set up in Settings',
+		].filter(Boolean);
+		if (needs.length) return `Checking works now. Reading needs ${needs.join(', ')}.`;
+		return `Reads with ${live.speech?.name} and writes the titles with ${live.ai?.by}.`;
 	}
 
 	function status(run: Run) {
@@ -770,19 +793,24 @@ export function mountWeb(app: Hono, web: Web) {
 										: 'Not run yet.'}{' '}
 								{last && !mine && <a href={`/automations/runs/${last.id}`}>See the books</a>}
 							</p>
-							<form method="post" action={`/automations/${job.id}/auto`} class="actions">
-								<label class="remove">
-									<input type="checkbox" name="auto" value="1" checked={auto} /> Run by itself every hour
-								</label>
-								<button type="submit" class="secondary small">
-									Save
-								</button>
-							</form>
-							<p class="hint">
-								{auto
-									? 'On: each hour it looks at books added or changed since the last run, and renames those that fit.'
-									: 'Off: it runs only when you press Check now, and changes nothing until you rename from the results.'}
-							</p>
+							{job.scheduled !== false && (
+								<>
+									<form method="post" action={`/automations/${job.id}/auto`} class="actions">
+										<label class="remove">
+											<input type="checkbox" name="auto" value="1" checked={auto} /> Run by itself every hour
+										</label>
+										<button type="submit" class="secondary small">
+											Save
+										</button>
+									</form>
+									<p class="hint">
+										{auto
+											? 'On: each hour it looks at books added or changed since the last run, and renames those that fit.'
+											: 'Off: it runs only when you press Check now, and changes nothing until you rename from the results.'}
+									</p>
+								</>
+							)}
+							{job.id === 'audio-titles' && <p class="hint">{titlesReady()}</p>}
 							<div class="actions">
 								{mine ? (
 									<form method="post" action="/automations/stop">
@@ -797,7 +825,7 @@ export function mountWeb(app: Hono, web: Web) {
 										</button>
 									</form>
 								)}
-								<span class="hint">A check lists what it would rename and changes nothing.</span>
+								<span class="hint">{job.checks}</span>
 							</div>
 						</section>
 					);
@@ -848,7 +876,8 @@ export function mountWeb(app: Hono, web: Web) {
 		const job = runner.job(run.job);
 		const items = runner.items(run.id);
 		const problem = RUN_PROBLEMS.get(c.req.query('problem') ?? '') ?? null;
-		const ready = items.filter((item) => item.outcome === 'ready');
+		const next = job?.next && run.dryRun ? job.next : null;
+		const busy = runner.running !== null;
 		return c.html(
 			<Layout
 				title={job?.title ?? 'Run'}
@@ -899,7 +928,35 @@ export function mountWeb(app: Hono, web: Web) {
 														item.title
 													)}
 												</td>
-												<td class="answer">{item.detail}</td>
+												<td class="answer">
+													{item.detail}
+													{Array.isArray(item.after) && (item.after as Heard[]).some((chapter) => 'heard' in chapter) && (
+														<Proposal before={item.before as string[]} after={item.after as Heard[]} />
+													)}
+												</td>
+												{next?.from === outcome.id && (
+													<td class="num">
+														<form method="post" action={`/automations/runs/${run.id}/next`}>
+															<input type="hidden" name="item" value={item.item} />
+															<button type="submit" class="secondary small" disabled={busy}>
+																{next.verb}
+															</button>
+														</form>
+													</td>
+												)}
+												{job?.approvable?.includes(outcome.id) && (
+													<td class="num">
+														<form method="post" action={`/automations/runs/${run.id}/decide`} class="decide">
+															<input type="hidden" name="item" value={item.item} />
+															<button type="submit" name="approve" value="1" class="primary small">
+																Approve
+															</button>
+															<button type="submit" name="approve" value="0" class="secondary small">
+																Reject
+															</button>
+														</form>
+													</td>
+												)}
 												{job?.undoable?.includes(outcome.id) && (
 													<td class="num">
 														{item.undone ? (
@@ -919,12 +976,12 @@ export function mountWeb(app: Hono, web: Web) {
 									</tbody>
 								</table>
 							</div>
-							{outcome.id === 'ready' && run.dryRun && (
-								<form method="post" action={`/automations/runs/${run.id}/rename`} class="actions">
-									<button type="submit" class="primary" disabled={runner.running !== null}>
-										Rename {ready.length === 1 ? 'this book' : `these ${ready.length} books`}
+							{next?.from === outcome.id && (
+								<form method="post" action={`/automations/runs/${run.id}/next`} class="actions">
+									<button type="submit" class="primary" disabled={busy}>
+										{next.verb} {group.length === 1 ? 'this book' : `these ${group.length} books`}
 									</button>
-									<span class="hint">Each book is read again first, and left alone if it changed.</span>
+									<span class="hint">{next.hint}</span>
 								</form>
 							)}
 						</section>
@@ -943,15 +1000,21 @@ export function mountWeb(app: Hono, web: Web) {
 		return c.redirect(typeof started === 'number' ? '/automations' : `/automations?problem=${started}`, 303);
 	});
 
-	app.post('/automations/runs/:id/rename', async (c) => {
+	/** What a check leads to, for one of its books or all of them: renaming them, or reading their audio. */
+	app.post('/automations/runs/:id/next', async (c) => {
 		if (!sameSite(c)) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		const run = runner.run(Number(c.req.param('id')));
-		if (!run?.dryRun) return c.redirect('/automations', 303);
-		// What the check showed, so the rename writes just that and leaves any book that changed since.
+		const from = run ? runner.job(run.job)?.next?.from : undefined;
+		if (!run?.dryRun || !from) return c.redirect('/automations', 303);
+		const form = await c.req.parseBody();
+		const only = typeof form.item === 'string' ? form.item : null;
+		// What the check showed, so the next run takes just that and leaves any book that changed since.
 		const plan = Object.fromEntries(
-			runner.items(run.id).flatMap((item) => (item.outcome === 'ready' ? [[item.item, { before: item.before, after: item.after }]] : [])),
+			runner
+				.items(run.id)
+				.flatMap((item) => (item.outcome === from && (!only || item.item === only) ? [[item.item, { before: item.before, after: item.after }]] : [])),
 		);
 		if (Object.keys(plan).length === 0) return c.redirect(`/automations/runs/${run.id}`, 303);
 		const started = runner.start(run.job, { dryRun: false, plan });
@@ -970,6 +1033,24 @@ export function mountWeb(app: Hono, web: Web) {
 			problem = await runner.undo(id, item);
 		} catch (error) {
 			warn(`undo in run ${id} failed: ${error instanceof Error ? error.message : String(error)}`);
+			problem = 'failed';
+		}
+		return c.redirect(problem ? `/automations/runs/${id}?problem=${problem}` : `/automations/runs/${id}`, 303);
+	});
+
+	/** The owner's Approve or Reject on one book a run holds for approval. */
+	app.post('/automations/runs/:id/decide', async (c) => {
+		if (!sameSite(c)) return c.text('Forbidden', 403);
+		const found = await owner(c);
+		if ('page' in found) return found.page;
+		const id = Number(c.req.param('id'));
+		const form = await c.req.parseBody();
+		const item = typeof form.item === 'string' ? form.item : '';
+		let problem: string | null;
+		try {
+			problem = await runner.decide(id, item, form.approve === '1');
+		} catch (error) {
+			warn(`approving in run ${id} failed: ${error instanceof Error ? error.message : String(error)}`);
 			problem = 'failed';
 		}
 		return c.redirect(problem ? `/automations/runs/${id}?problem=${problem}` : `/automations/runs/${id}`, 303);
@@ -1260,6 +1341,7 @@ export function mountWeb(app: Hono, web: Web) {
 							<output class="test-result" aria-live="polite" />
 						</div>
 						<p class="hint">Test signs in to Audiobookshelf with the address and key above, before you save.</p>
+						<SpeechFields effective={effective} />
 					</fieldset>
 
 					<div class="actions">
@@ -1403,6 +1485,65 @@ export function mountWeb(app: Hono, web: Web) {
 		);
 	};
 
+	/** A reading's titles, chapter by chapter, beside what was heard: folded away until opened. */
+	const Proposal: FC<{ before: string[]; after: Heard[] }> = ({ before, after }) => (
+		<details class="proposal">
+			<summary>All {after.length} chapters</summary>
+			<table>
+				<thead>
+					<tr>
+						<th scope="col">Now</th>
+						<th scope="col">Title</th>
+						<th scope="col">Heard</th>
+					</tr>
+				</thead>
+				<tbody>
+					{after.map((chapter, index) => (
+						<tr class={chapter.title === before[index] ? 'same' : undefined}>
+							<td>{before[index]}</td>
+							<td>{chapter.title}</td>
+							<td class="heard">{chapter.heard || '(nothing)'}</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</details>
+	);
+
+	/** What reads the audio for Titles from the audio: ElevenLabs with its key, or Whisper when the image has it. */
+	const SpeechFields: FC<{ effective: Effective }> = ({ effective }) => {
+		const model = whisperModel();
+		return (
+			<>
+				<label class="field">
+					<span class="label">Speech to text</span>
+					<select id="speech" name="speech">
+						<option value="elevenlabs" selected={effective.speech === 'elevenlabs'}>
+							ElevenLabs Scribe
+						</option>
+						<option value="whisper" selected={effective.speech === 'whisper'} disabled={!model && effective.speech !== 'whisper'}>
+							{model ? `Whisper ${whisperName(model)}, on this server` : 'Whisper, on this server (needs the speech image)'}
+						</option>
+					</select>
+					<span class="hint">
+						For Titles from the audio, which reads the first seconds of each chapter.{' '}
+						{model
+							? 'Whisper is free and runs here; ElevenLabs is more accurate with names, at $0.20 an hour of audio (about 3¢ for a book of 40 chapters).'
+							: 'ElevenLabs costs $0.20 an hour of audio: about 3¢ for a book of 40 chapters.'}
+						{!hasFfmpeg() && ' Reading the audio needs the speech image, which has ffmpeg: build Athena with ATHENA_TARGET=speech.'}
+					</span>
+				</label>
+				<KeyField
+					name="elevenlabsKey"
+					label="ElevenLabs API key"
+					current={effective.elevenlabsKey}
+					env={effective.env.elevenlabsKey}
+					hint={`Make one at elevenlabs.io under Developers › API Keys, with Speech to Text allowed. Athena uses ${SCRIBE_MODEL} and sends only the chapter openings.`}
+				/>
+			</>
+		);
+	};
+
 	const KeyField: FC<{ name: string; label: string; current: string | null; env?: string; hint: Child }> = ({
 		name,
 		label,
@@ -1496,6 +1637,12 @@ export function mountWeb(app: Hono, web: Web) {
 		}
 		const region = text('audibleRegion');
 		if (AUDIBLE_REGIONS.some((each) => each.id === region)) patch.audibleRegion = region;
+		const speech = text('speech');
+		if (speech === 'elevenlabs' || speech === 'whisper') patch.speech = speech;
+		if (!effective.env.elevenlabsKey) {
+			if (text('elevenlabsKeyRemove')) patch.elevenlabsKey = null;
+			if (text('elevenlabsKey')) patch.elevenlabsKey = text('elevenlabsKey');
+		}
 		patch.ownerName = s.name;
 		patch.ownerId = s.accountId;
 		patch.ownerToken = s.token;
@@ -1621,8 +1768,8 @@ const PROBLEMS = new Map([
 const RUN_PROBLEMS = new Map([
 	['busy', 'Another job is running. Try again when it finishes.'],
 	['changed', 'Its chapters have changed since, so they were left as they are.'],
-	['nothing', 'There is nothing to undo there.'],
-	['failed', "Audiobookshelf didn't take the undo. Try again in a minute."],
+	['nothing', 'There’s nothing left to do there: it was already done.'],
+	['failed', "Audiobookshelf didn't take that. Try again in a minute."],
 	['unconnected', 'Connect Audiobookshelf in Settings first.'],
 	['unknown', 'There is no such job.'],
 ]);

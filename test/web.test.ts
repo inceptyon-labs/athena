@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Cutter } from '../src/clips';
 import { JOBS, Runner } from '../src/jobs';
+import type { AI } from '../src/pick';
 import { Live } from '../src/live';
 import { createApp } from '../src/server';
 import { Sessions } from '../src/sessions';
@@ -33,9 +35,10 @@ const sampleAnswer = () =>
 	});
 
 /** Athena with fake Plex, where the PIN `pin` is approved by whoever `approve` says. */
-function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string, string> = {}) {
+function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string, string> = {}, jobs: { ai?: AI; cutter?: Cutter } = {}) {
 	const plex = fakePlex();
 	const abs = fakeAbs();
+	const scribed: FormData[] = [];
 	let approve: string | null = null;
 	const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
 		const path = new URL(String(url)).pathname;
@@ -51,6 +54,11 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		if (String(url) === 'http://ollama:11434/v1/models') return Response.json({ data: [{ id: 'llama-test:latest' }] });
 		if (String(url) === 'http://ollama:11434/v1/chat/completions') return sampleAnswer();
 		if (String(url).startsWith('http://abs:13378/')) return abs.fetcher(url, init);
+		if (String(url) === 'https://api.elevenlabs.io/v1/speech-to-text') {
+			if (new Headers(init?.headers).get('xi-api-key') !== 'eleven-fake-0000') return new Response('', { status: 401 });
+			scribed.push(init?.body as FormData);
+			return Response.json({ text: scribed.length === 1 ? 'Chapter one. The Watsons.' : 'Chapter two. Mr Knightley.' });
+		}
 		return plex.fetcher(url, init);
 	}) as typeof fetch;
 	const settings = new Settings(mkdtempSync(join(tmpdir(), 'athena-')), env);
@@ -58,7 +66,14 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 	const live = new Live(settings, fetcher);
 	const usage = new Usage(':memory:');
 	const app = createApp(Object.assign(live, { usage }));
-	const runner = new Runner(':memory:', JOBS, () => ({ abs: live.abs, region: live.audibleRegion, auto: (id) => live.autoJobs.includes(id) }));
+	const runner = new Runner(':memory:', JOBS, () => ({
+		abs: live.abs,
+		region: live.audibleRegion,
+		auto: (id) => live.autoJobs.includes(id),
+		speech: live.speech,
+		ai: jobs.ai ?? live.ai,
+		...(jobs.cutter ? { cutter: jobs.cutter } : {}),
+	}));
 	mountWeb(app, { live, usage, runner, sessions: new Sessions() });
 
 	const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
@@ -79,7 +94,7 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		const session = done.headers.getSetCookie().find((cookie) => cookie.startsWith('athena_session='));
 		return session?.split(';')[0] ?? '';
 	}
-	return { app, live, usage, runner, post, get, signIn, setApprove: (token: string | null) => (approve = token) };
+	return { app, live, usage, runner, abs, scribed, post, get, signIn, setApprove: (token: string | null) => (approve = token) };
 }
 
 describe('sign in with Plex', () => {
@@ -410,7 +425,7 @@ describe('automations', () => {
 		const check = runner.runs(1)[0]?.id;
 		expect(await (await get(`/automations/runs/${check}`, cookie)).text()).toContain('Rename this book');
 
-		const renamed = await post(`/automations/runs/${check}/rename`, {}, cookie);
+		const renamed = await post(`/automations/runs/${check}/next`, {}, cookie);
 		await runner.idle();
 		const run = runner.runs(1)[0];
 		expect(renamed.headers.get('Location')).toBe(`/automations/runs/${run?.id}`);
@@ -428,6 +443,49 @@ describe('automations', () => {
 		expect(await (await get('/automations', cookie)).text()).toContain('On: each hour');
 		await post('/automations/chapter-names/auto', {}, cookie);
 		expect(live.autoJobs).toEqual([]);
+	});
+
+	test("the owner adds an ElevenLabs key, reads one book's audio and approves its titles", async () => {
+		const ai: AI = {
+			by: 'claude-haiku-5-5',
+			pick: async () => {
+				throw new Error('not here');
+			},
+			titles: async () => ({ titles: ['Chapter 1: The Watsons', 'Chapter 2: Mr. Knightley'], usage: { input_tokens: 600, output_tokens: 40 } }),
+		};
+		const withAbs = { ...ready, absURL: 'http://abs:13378', absKey: 'abs-key' };
+		const { live, runner, abs, scribed, get, post, signIn } = athena(withAbs, {}, { ai, cutter: async () => new Uint8Array([1, 2, 3]) });
+		(abs.books.emma?.media as Record<string, unknown>).tracks = [{ startOffset: 0, duration: 1000, contentUrl: '/api/items/emma/file/1' }];
+		const cookie = await signIn('owner-token');
+		await post('/settings', { server: 'machine-1', absURL: 'http://abs:13378', speech: 'elevenlabs', elevenlabsKey: 'eleven-fake-0000' }, cookie);
+		expect(live.speech?.name).toBe('ElevenLabs Scribe');
+		const settings = await (await get('/settings', cookie)).text();
+		expect(settings).not.toContain('eleven-fake-0000');
+		expect(settings).toContain('eleven-…0000');
+
+		const page = await (await get('/automations', cookie)).text();
+		expect(page).toContain('Titles from the audio');
+		await post('/automations/audio-titles/run', {}, cookie);
+		await runner.idle();
+		const check = runner.runs(1)[0]?.id;
+		const found = await (await get(`/automations/runs/${check}`, cookie)).text();
+		expect(found).toContain('Can be read');
+		expect(found).toContain('about 0.2¢ with ElevenLabs Scribe');
+
+		const reading = await post(`/automations/runs/${check}/next`, { item: 'emma' }, cookie);
+		await runner.idle();
+		const read = runner.runs(1)[0]?.id;
+		expect(reading.headers.get('Location')).toBe(`/automations/runs/${read}`);
+		expect(scribed.map((form) => form.get('model_id'))).toEqual(['scribe_v3', 'scribe_v3']);
+		const proposal = await (await get(`/automations/runs/${read}`, cookie)).text();
+		expect(proposal).toContain('1 book waits for your approval below');
+		expect(proposal).toContain('Chapter two. Mr Knightley.');
+		expect(proposal).toContain('>Approve<');
+
+		const approved = await post(`/automations/runs/${read}/decide`, { item: 'emma', approve: '1' }, cookie);
+		expect(approved.headers.get('Location')).toBe(`/automations/runs/${read}`);
+		expect(abs.books.emma?.media.chapters.map((chapter) => chapter.title)).toEqual(['Chapter 1: The Watsons', 'Chapter 2: Mr. Knightley']);
+		expect(await (await get(`/automations/runs/${read}`, cookie)).text()).toContain('>Undo<');
 	});
 
 	test('Test signs in to Audiobookshelf with what was typed, before saving', async () => {

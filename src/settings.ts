@@ -39,7 +39,13 @@ export type Stored = {
 	audibleRegion?: string | null;
 	/** The automations the owner set to run by themselves, by job id. */
 	autoJobs?: string[] | null;
+	/** What turns speech to text for Titles from the audio. */
+	speech?: SpeechChoice | null;
+	elevenlabsKey?: string | null;
 } & Partial<Record<KeyName, string | null>>;
+
+/** ElevenLabs Scribe, or whisper.cpp in the speech image. */
+export type SpeechChoice = 'elevenlabs' | 'whisper';
 
 /** The settings Athena runs with: an environment variable wins over what was saved. */
 export type Effective = {
@@ -60,8 +66,10 @@ export type Effective = {
 	absKey: string | null;
 	audibleRegion: string;
 	autoJobs: string[];
+	speech: SpeechChoice;
+	elevenlabsKey: string | null;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
-	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | 'absURL' | 'absKey' | KeyName, string>>;
+	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | 'absURL' | 'absKey' | 'elevenlabsKey' | KeyName, string>>;
 } & Record<KeyName, string | null>;
 
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
@@ -117,6 +125,7 @@ export class Settings {
 		const typesafeKey = blank(env.TYPESAFE_API_KEY);
 		const absURL = blank(env.ABS_URL)?.replace(/\/+$/, '') ?? null;
 		const absKey = blank(env.ABS_API_KEY);
+		const elevenlabsKey = blank(env.ELEVENLABS_API_KEY);
 		const limit = stored.dailyLimit;
 		const keys = {} as Record<KeyName, string | null>;
 		const keyEnv: Effective['env'] = {};
@@ -145,6 +154,8 @@ export class Settings {
 			absKey: absKey ?? stored.absKey ?? null,
 			audibleRegion: stored.audibleRegion && AUDIBLE_REGIONS.some((region) => region.id === stored.audibleRegion) ? stored.audibleRegion : 'us',
 			autoJobs: stored.autoJobs ?? [],
+			speech: stored.speech === 'whisper' ? 'whisper' : 'elevenlabs',
+			elevenlabsKey: elevenlabsKey ?? stored.elevenlabsKey ?? null,
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),
 				...(fromEnv ? { provider: fromEnv.from } : {}),
@@ -153,6 +164,7 @@ export class Settings {
 				...(typesafeKey ? { typesafeKey: 'TYPESAFE_API_KEY' } : {}),
 				...(absURL ? { absURL: 'ABS_URL' } : {}),
 				...(absKey ? { absKey: 'ABS_API_KEY' } : {}),
+				...(elevenlabsKey ? { elevenlabsKey: 'ELEVENLABS_API_KEY' } : {}),
 			},
 		};
 	}

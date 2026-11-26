@@ -19,6 +19,8 @@ const runner = new Runner(join(data, 'jobs.db'), JOBS, () => ({
 	abs: live.abs,
 	region: live.audibleRegion,
 	auto: (id) => live.autoJobs.includes(id),
+	speech: live.speech,
+	ai: live.ai,
 }));
 runner.schedule();
 

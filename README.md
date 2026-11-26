@@ -86,13 +86,34 @@ Under Settings → Audiobookshelf, enter its address (`http://192.168.1.10:13378
 under Settings → API Keys, for a user who can update books. An **Automations** page then appears. Its first job,
 **Chapter names**, finds books whose chapters are only numbered ("Chapter 1", "01", "Track 3") and looks up Audible's
 names for them by ASIN, through Audiobookshelf. It takes them only when Audible has as many chapters as the book, each
-starting within 2 seconds of the book's, so only titles change, never where chapters start.
+starting within 2 seconds of the book's, so only titles change, never where chapters start. It asks your Audible store
+first (Settings → Audible store), then the UK and Canada, then the others, and says which store matched.
 
 - **Check now** lists what it would rename and changes nothing. From its results, **Rename** renames those books,
   reading each one again first and leaving it alone if it changed. Every app, Siren included, sees the new names.
 - **Undo**, on each renamed book, puts its old titles back, unless its chapters have changed since.
 - **Run by itself every hour** (off until you turn it on) looks at books added or changed since its last run and
   renames those that fit, so new books get names without you.
+
+The second job, **Titles from the audio**, is for books whose chapters are only numbered and that no Audible store can
+name. It cuts the first 20 seconds of each chapter with ffmpeg (reading only those seconds over Audiobookshelf's API),
+turns them into text, and has the AI model you chose for Describe It write the titles the narrator reads, such as
+"Chapter 12: The Long Night" or "Opening Credits".
+
+- **Check now** lists the books it could read, with what reading each would cost, and costs nothing.
+- **Read**, for one book or all of them, does the reading. Nothing is renamed yet: each book waits for you, with its
+  titles beside what was heard at the start of each chapter.
+- **Approve** reads the book again and saves its titles, unless its chapters changed since; **Reject** leaves it.
+  **Undo** puts the numbers back. It never runs by itself, since each reading costs a little.
+
+Speech to text is your choice in Settings:
+
+- **ElevenLabs Scribe**, with an ElevenLabs API key: $0.20 an hour of audio, billed by the second, so about 3¢ for a
+  book of 40 chapters. Only the chapter openings are sent.
+- **Whisper on this server**, free, with whisper.cpp. Only the speech image has it.
+
+Both need the **speech image**, which adds ffmpeg and whisper.cpp to Athena (about 1.2 GB). Building from source, set
+`ATHENA_TARGET=speech` in `.env`, and `WHISPER_MODEL` there to choose Whisper's model (`small.en` by default).
 
 Jobs run one at a time in the background and never slow Describe It; their log is `jobs.db` in the data folder.
 
@@ -114,6 +135,9 @@ locked.
 | `TYPESAFE_API_KEY` | The TypeSafe key for Jev, which makes the library picks ([How it picks](#how-it-picks)) |
 | `ABS_URL` | Audiobookshelf's address, for [automations](#automations-audiobookshelf) |
 | `ABS_API_KEY` | An Audiobookshelf API key from a user who can update books |
+| `ELEVENLABS_API_KEY` | ElevenLabs' API key, for [Titles from the audio](#automations-audiobookshelf) |
+| `ATHENA_TARGET` | Building from source only, in `.env`: `speech` builds the speech image, with ffmpeg and whisper.cpp |
+| `WHISPER_MODEL` | Building the speech image, in `.env`: whisper.cpp's model, such as `base.en` or `small.en` (the default) |
 | `TZ` | The time zone that "today" and "this month" follow on the status page. `America/New_York` by default |
 | `PUID`, `PGID` | The user and group Athena runs as, and gives the data folder to. 99 and 100 (Unraid's nobody:users) by default |
 | `ATHENA_BIND` | Building from source only, in `.env`: this machine's home-network address, which Compose publishes Athena on |

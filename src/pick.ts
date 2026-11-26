@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { cleanTitles, TITLES_SYSTEM, type TitlesRequest, TitlesResult, titlesText } from './titles';
 
 /** Review scores: Rotten Tomatoes critics and audience in percent, IMDb and TMDB out of 10. */
 const Scores = z.object({
@@ -262,15 +263,44 @@ export interface PickOutcome {
 	};
 }
 
+/** Chapter titles from what was heard, one per chapter or null, and what the answer cost in tokens. */
+export interface TitlesOutcome {
+	titles: (string | null)[];
+	usage: PickOutcome['usage'];
+}
+
 /** The model that reads Describe It: Claude here, or another provider's through `src/compat.ts`. */
 export interface AI {
 	/** What the request log names as having answered: the model's id, or `local:<model>`. */
 	by: string;
 	pick(req: PickRequest): Promise<PickOutcome>;
+	/** Titles from the audio's tidying step (`src/titles.ts`). */
+	titles?(req: TitlesRequest): Promise<TitlesOutcome>;
 }
 
 export function claude(client: Anthropic, model: string): AI {
-	return { by: model, pick: (req) => pick(client, model, req) };
+	return { by: model, pick: (req) => pick(client, model, req), titles: (req) => titles(client, model, req) };
+}
+
+export async function titles(client: Anthropic, model: string, req: TitlesRequest): Promise<TitlesOutcome> {
+	const response = await client.messages
+		.parse({
+			model,
+			max_tokens: 8192,
+			system: TITLES_SYSTEM,
+			output_config: { effort: 'low', format: zodOutputFormat(TitlesResult) },
+			messages: [{ role: 'user', content: titlesText(req) }],
+		})
+		.catch((error: unknown) => {
+			throw new PickError(describe(error));
+		});
+	const paid = { by: model, usage: response.usage };
+	if (response.stop_reason === 'refusal') throw new PickError('Claude declined to title these chapters.', 502, paid);
+	const result = response.parsed_output;
+	if (!result) throw new PickError(`Claude's answer was cut off (${response.stop_reason}).`, 502, paid);
+	const cleaned = cleanTitles(result.titles, req.chapters.length);
+	if (!cleaned) throw new PickError(`Claude gave ${result.titles.length} titles for ${req.chapters.length} chapters.`, 502, paid);
+	return { titles: cleaned, usage: response.usage };
 }
 
 export async function pick(client: Anthropic, model: string, req: PickRequest): Promise<PickOutcome> {
