@@ -37,6 +37,8 @@ export class Live {
 	autoJobs: string[] = [];
 	/** Speech to text for Titles from the audio: null until chosen and set up. */
 	speech: Speech | null = null;
+	/** Owner pages open from anywhere, not only on the admin port at home. */
+	ownerAnywhere = false;
 	readonly plexTV: PlexTV;
 	private where: string | null = null;
 	private account: { key: string; at: number; value: Promise<ElevenLabsAccount | { error: string }> } | null = null;
@@ -83,6 +85,7 @@ export class Live {
 		this.abs = now.absURL && now.absKey ? new Audiobookshelf(now.absURL, now.absKey, this.fetcher) : null;
 		this.audibleRegion = now.audibleRegion;
 		this.autoJobs = now.autoJobs;
+		this.ownerAnywhere = now.ownerAnywhere;
 		const model = now.speech === 'whisper' ? whisperModel() : null;
 		this.speech = model ? whisper(model) : now.speech === 'elevenlabs' && now.elevenlabsKey ? elevenLabs(now.elevenlabsKey, { fetcher: this.fetcher }) : null;
 		const where = now.plexURL ? `url ${now.plexURL}` : now.server ? `id ${now.server.id}` : null;

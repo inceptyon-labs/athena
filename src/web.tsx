@@ -1,7 +1,8 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { raw } from 'hono/html';
-import type { Child, FC } from 'hono/jsx';
+import { type Child, createContext, type FC, useContext } from 'hono/jsx';
 import { absBase, Audiobookshelf, type AbsUser } from './abs';
 import { listModels } from './compat';
 import type { Run, RunItem, Runner } from './jobs';
@@ -26,21 +27,29 @@ import { hasFfmpeg } from './clips';
 import type { Heard } from './jobs/audio-titles';
 import { AUDIBLE_REGIONS, type Effective, mask } from './settings';
 import { type ElevenLabsAccount, SCRIBE_MODEL, whisperModel, whisperName } from './speech';
+import { forwardedFor, homeAddress } from './network';
 import { publicAddress, qrSVG, shareLink } from './share';
-import type { Session, Sessions } from './sessions';
+import { type Session, SESSION_DAYS, type Sessions } from './sessions';
 import type { Entry, Usage } from './usage';
 
 /**
- * The web UI on Athena's own port: sign in with Plex, settings for the Plex server's owner, the status page, and for
- * everyone else with access, their own use today.
+ * The web UI: sign in with Plex, settings for the Plex server's owner, the status page, and for everyone else with
+ * access, their own use today. Athena listens on two ports. The public one (8800) is what Ithaca finds at home and what
+ * a reverse proxy or tunnel puts on the internet; the admin one (8801) is published only on the home network. Owner
+ * pages open only on the admin port from a home address, unless the owner turns on `ownerAnywhere`.
  */
 export interface Web {
 	live: Live;
 	usage: Usage;
 	runner: Runner;
 	sessions: Sessions;
+	/** The admin port, for links to it from the public one. */
+	adminPort?: number;
 	now?: () => number;
 }
+
+/** Which port a request came in on, and the address of what connected (`server.requestIP`). Passed as Hono's env. */
+export type Door = { surface: 'public' | 'admin'; peer: string | null };
 
 const SESSION = 'athena_session';
 const PIN = 'athena_pin';
@@ -48,26 +57,55 @@ const PIN = 'athena_pin';
 /** owner: owns the Plex server. setup: nobody has chosen a server yet, so whoever signs in first sets Athena up. */
 type Role = 'owner' | 'setup' | 'viewer' | 'none';
 
-const https = (c: Context) =>
-	(c.req.header('X-Forwarded-Proto') ?? new URL(c.req.url).protocol.replace(':', '')).split(',')[0]?.trim() === 'https';
-
-function origin(c: Context) {
-	const host = c.req.header('X-Forwarded-Host') ?? c.req.header('Host') ?? new URL(c.req.url).host;
-	return `${https(c) ? 'https' : 'http'}://${host.split(',')[0]?.trim()}`;
+function door(c: Context): Door {
+	const env = c.env as Partial<Door> | undefined;
+	return { surface: env?.surface === 'admin' ? 'admin' : 'public', peer: env?.peer ?? null };
 }
+
+/** Forwarding headers are believed only from a proxy or tunnel on the home network, never from the internet directly. */
+const viaHomeProxy = (c: Context) => homeAddress(door(c).peer);
+
+const https = (c: Context) =>
+	((viaHomeProxy(c) ? c.req.header('X-Forwarded-Proto') : undefined) ?? new URL(c.req.url).protocol.replace(':', ''))
+		.split(',')[0]
+		?.trim() === 'https';
+
+const host = (c: Context) =>
+	((viaHomeProxy(c) ? c.req.header('X-Forwarded-Host') : undefined) ?? c.req.header('Host') ?? new URL(c.req.url).host)
+		.split(',')[0]
+		?.trim() ?? '';
+
+const origin = (c: Context) => `${https(c) ? 'https' : 'http'}://${host(c)}`;
 
 /** A form posted from another site never gets through, behind a reverse proxy or not. */
 function sameSite(c: Context) {
 	if (c.req.header('Sec-Fetch-Site') === 'cross-site') return false;
 	const from = c.req.header('Origin');
-	if (!from || from === 'null') return true;
-	const host = c.req.header('X-Forwarded-Host') ?? c.req.header('Host');
+	if (!from) return true;
 	try {
-		return new URL(from).host === host?.split(',')[0]?.trim();
+		return new URL(from).host === host(c);
 	} catch {
+		// Including "null", from a sandboxed frame or a page opened from a file.
 		return false;
 	}
 }
+
+/**
+ * Whether a request comes from the home network: what connected is a home address, and so is everyone a proxy or
+ * tunnel says it passed the request on for. A client can add home addresses to those headers but can't remove the one
+ * its proxy adds.
+ */
+function fromHome(c: Context) {
+	return homeAddress(door(c).peer) && forwardedFor((name) => c.req.header(name)).every(homeAddress);
+}
+
+/** The session's form token, for the forms on a page. */
+const FormToken = createContext('');
+
+const Token: FC = () => {
+	const token = useContext(FormToken);
+	return token ? <input type="hidden" name="_token" value={token} /> : null;
+};
 
 /** About what a Describe It costs, in cents while it's under a dollar. */
 function cents(dollars: number) {
@@ -127,60 +165,63 @@ const Layout: FC<{
 }> = ({ title, signedIn, nav, automations, refresh, bare, children }) => (
 	<>
 		{raw('<!doctype html>')}
-		<html lang="en">
-			<head>
-				<meta charset="utf-8" />
-				<meta name="viewport" content="width=device-width, initial-scale=1" />
-				<meta name="color-scheme" content="light dark" />
-				<meta name="robots" content="noindex" />
-				{refresh && <meta http-equiv="refresh" content={String(refresh)} />}
-				<title>{title === 'Athena' ? 'Athena' : `${title} · Athena`}</title>
-				<link rel="icon" href="/icon.svg" type="image/svg+xml" />
-				<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
-				<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-				<link rel="stylesheet" href="/app.css" />
-				<script src="/app.js" defer />
-			</head>
-			<body>
-				{!bare && (
-					<header class="bar">
-						<div class="bar-inner">
-							<a class="brand" href="/">
-								<img src="/mark.svg" alt="" width="26" height="26" />
-								<span>Athena</span>
-							</a>
-							{nav && (
-								<nav aria-label="Main">
-									<a href="/" aria-current={nav === 'status' ? 'page' : undefined}>
-										Status
-									</a>
-									<a href="/share" aria-current={nav === 'share' ? 'page' : undefined}>
-										Share
-									</a>
-									{automations && (
-										<a href="/automations" aria-current={nav === 'automations' ? 'page' : undefined}>
-											Automations
+		<FormToken.Provider value={signedIn?.form ?? ''}>
+			<html lang="en">
+				<head>
+					<meta charset="utf-8" />
+					<meta name="viewport" content="width=device-width, initial-scale=1" />
+					<meta name="color-scheme" content="light dark" />
+					<meta name="robots" content="noindex" />
+					{refresh && <meta http-equiv="refresh" content={String(refresh)} />}
+					<title>{title === 'Athena' ? 'Athena' : `${title} · Athena`}</title>
+					<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+					<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+					<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+					<link rel="stylesheet" href="/app.css" />
+					<script src="/app.js" defer />
+				</head>
+				<body>
+					{!bare && (
+						<header class="bar">
+							<div class="bar-inner">
+								<a class="brand" href="/">
+									<img src="/mark.svg" alt="" width="26" height="26" />
+									<span>Athena</span>
+								</a>
+								{nav && (
+									<nav aria-label="Main">
+										<a href="/" aria-current={nav === 'status' ? 'page' : undefined}>
+											Status
 										</a>
-									)}
-									<a href="/settings" aria-current={nav === 'settings' ? 'page' : undefined}>
-										Settings
-									</a>
-								</nav>
-							)}
-							{signedIn && (
-								<form method="post" action="/signout" class="who">
-									<span class="who-name">{signedIn.name}</span>
-									<button type="submit" class="quiet">
-										Sign out
-									</button>
-								</form>
-							)}
-						</div>
-					</header>
-				)}
-				<main>{children}</main>
-			</body>
-		</html>
+										<a href="/share" aria-current={nav === 'share' ? 'page' : undefined}>
+											Share
+										</a>
+										{automations && (
+											<a href="/automations" aria-current={nav === 'automations' ? 'page' : undefined}>
+												Automations
+											</a>
+										)}
+										<a href="/settings" aria-current={nav === 'settings' ? 'page' : undefined}>
+											Settings
+										</a>
+									</nav>
+								)}
+								{signedIn && (
+									<form method="post" action="/signout" class="who">
+										<Token />
+										<span class="who-name">{signedIn.name}</span>
+										<button type="submit" class="quiet">
+											Sign out
+										</button>
+									</form>
+								)}
+							</div>
+						</header>
+					)}
+					<main>{children}</main>
+				</body>
+			</html>
+		</FormToken.Provider>
 	</>
 );
 
@@ -196,6 +237,7 @@ const Note: FC<{ title: string; children: Child; signedIn?: Session | null }> = 
 export function mountWeb(app: Hono, web: Web) {
 	const { live, usage, runner, sessions } = web;
 	const now = web.now ?? Date.now;
+	const adminPort = web.adminPort ?? 8801;
 
 	const files = ['app.css', 'app.js', 'icon.svg', 'mark.svg', 'favicon-32.png', 'apple-touch-icon.png'];
 	for (const file of [...files, 'favicon.ico']) {
@@ -219,6 +261,52 @@ export function mountWeb(app: Hono, web: Web) {
 	});
 
 	const session = (c: Context) => sessions.get(getCookie(c, SESSION));
+
+	/** A form from Athena's own page in this browser: posted from this site, with the session's form token. */
+	async function fromHere(c: Context) {
+		if (!sameSite(c)) return false;
+		const s = session(c);
+		// Nobody signed in can't do anything: the route sends them to sign in.
+		if (!s) return true;
+		const form = await c.req.parseBody();
+		const token = Buffer.from(typeof form._token === 'string' ? form._token : '');
+		const expected = Buffer.from(s.form);
+		return token.length === expected.length && timingSafeEqual(token, expected);
+	}
+
+	/** Whether owner pages may open for this request: on the admin port from home, or anywhere once the owner allows it. */
+	const ownerHere = (c: Context) => live.ownerAnywhere || (door(c).surface === 'admin' && fromHome(c));
+
+	/**
+	 * Where the owner goes instead of an owner page here: the admin port, for a page opened at home straight on the
+	 * public port (an old bookmark), or a note saying where Settings are.
+	 */
+	function away(c: Context, s: Session, setup: boolean) {
+		const direct = forwardedFor((name) => c.req.header(name)).length === 0 && !c.req.header('X-Forwarded-Host');
+		let admin: string | null = null;
+		if (fromHome(c)) {
+			try {
+				const url = new URL(c.req.url);
+				admin = `http://${new URL(`http://${c.req.header('Host') ?? url.host}`).hostname}:${adminPort}`;
+				if (c.req.method === 'GET' && direct && door(c).surface === 'public') return c.redirect(`${admin}${url.pathname}${url.search}`, 303);
+			} catch {}
+		}
+		return c.html(
+			<Note title={setup ? 'Set Athena up from home' : 'Settings are on your home network'} signedIn={s}>
+				<p>
+					{setup ? 'Setting Athena up' : 'Settings, Automations and Share'} {setup ? 'opens' : 'open'} only from your home
+					network, on port {adminPort} of the machine Athena runs on, so nobody can reach your keys from the internet.
+				</p>
+				{admin && (
+					<p>
+						<a href={`${admin}/`}>Open Athena on port {adminPort}</a>
+					</p>
+				)}
+				{!setup && <p>To open them from anywhere, turn on Owner pages from anywhere in Settings, from home.</p>}
+			</Note>,
+			403,
+		);
+	}
 
 	/** The servers this person reaches, asked of plex.tv at most once a minute. Null once Plex no longer knows the token. */
 	async function serversOf(s: Session): Promise<Server[] | null> {
@@ -261,6 +349,8 @@ export function mountWeb(app: Hono, web: Web) {
 				live.settings.save({ ownerId: s.accountId, ownerToken: s.token });
 				live.refresh();
 			}
+			if ((role.role === 'owner' || role.role === 'setup') && !ownerHere(c))
+				return { page: away(c, s, role.role === 'setup'), away: true };
 			return { s, ...role };
 		} catch (error) {
 			warn(`plex.tv check for the web UI failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -364,7 +454,7 @@ export function mountWeb(app: Hono, web: Web) {
 				httpOnly: true,
 				sameSite: 'Lax',
 				secure: https(c),
-				maxAge: 30 * 86_400,
+				maxAge: SESSION_DAYS * 86_400,
 			});
 			return c.redirect('/', 303);
 		} catch (error) {
@@ -378,8 +468,8 @@ export function mountWeb(app: Hono, web: Web) {
 		}
 	});
 
-	app.post('/signout', (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+	app.post('/signout', async (c) => {
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		sessions.delete(getCookie(c, SESSION));
 		deleteCookie(c, SESSION, { path: '/' });
 		return c.redirect('/', 303);
@@ -797,6 +887,7 @@ export function mountWeb(app: Hono, web: Web) {
 							{job.scheduled !== false && (
 								<>
 									<form method="post" action={`/automations/${job.id}/auto`} class="actions">
+										<Token />
 										<label class="remove">
 											<input type="checkbox" name="auto" value="1" checked={auto} /> Run by itself every hour
 										</label>
@@ -816,12 +907,14 @@ export function mountWeb(app: Hono, web: Web) {
 							<div class="actions">
 								{mine ? (
 									<form method="post" action="/automations/stop">
+										<Token />
 										<button type="submit" class="secondary">
 											Stop
 										</button>
 									</form>
 								) : (
 									<form method="post" action={`/automations/${job.id}/run`}>
+										<Token />
 										<button type="submit" class="primary" disabled={running !== null || !account}>
 											Check now
 										</button>
@@ -944,6 +1037,7 @@ export function mountWeb(app: Hono, web: Web) {
 														{next?.from === outcome.id && (
 															<td class="num">
 																<form method="post" action={`/automations/runs/${run.id}/next`}>
+																	<Token />
 																	<input type="hidden" name="item" value={item.item} />
 																	<button type="submit" class="secondary small" disabled={busy}>
 																		{next.verb}
@@ -954,6 +1048,7 @@ export function mountWeb(app: Hono, web: Web) {
 														{job?.approvable?.includes(outcome.id) && (
 															<td class="num">
 																<form method="post" action={`/automations/runs/${run.id}/decide`} class="decide">
+																	<Token />
 																	<input type="hidden" name="item" value={item.item} />
 																	<button type="submit" name="approve" value="1" class="primary small">
 																		Approve
@@ -970,6 +1065,7 @@ export function mountWeb(app: Hono, web: Web) {
 																	<span class="kind">Undone</span>
 																) : (
 																	<form method="post" action={`/automations/runs/${run.id}/undo`}>
+																		<Token />
 																		<input type="hidden" name="item" value={item.item} />
 																		<button type="submit" class="secondary small">
 																			Undo
@@ -994,6 +1090,7 @@ export function mountWeb(app: Hono, web: Web) {
 							</div>
 							{next?.from === outcome.id && (
 								<form method="post" action={`/automations/runs/${run.id}/next`} class="actions">
+									<Token />
 									<button type="submit" class="primary" disabled={busy}>
 										{next.verb} {group.length === 1 ? 'this book' : `these ${group.length} books`}
 									</button>
@@ -1008,7 +1105,7 @@ export function mountWeb(app: Hono, web: Web) {
 	});
 
 	app.post('/automations/:job/run', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		// Only checks for now: no job writes to Audiobookshelf yet.
@@ -1018,7 +1115,7 @@ export function mountWeb(app: Hono, web: Web) {
 
 	/** What a check leads to, for one of its books or all of them: renaming them, or reading their audio. */
 	app.post('/automations/runs/:id/next', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		const run = runner.run(Number(c.req.param('id')));
@@ -1038,7 +1135,7 @@ export function mountWeb(app: Hono, web: Web) {
 	});
 
 	app.post('/automations/runs/:id/undo', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		const id = Number(c.req.param('id'));
@@ -1056,7 +1153,7 @@ export function mountWeb(app: Hono, web: Web) {
 
 	/** The owner's Approve or Reject on one book a run holds for approval. */
 	app.post('/automations/runs/:id/decide', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		const id = Number(c.req.param('id'));
@@ -1073,7 +1170,7 @@ export function mountWeb(app: Hono, web: Web) {
 	});
 
 	app.post('/automations/:job/auto', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		const job = runner.job(c.req.param('job'));
@@ -1086,7 +1183,7 @@ export function mountWeb(app: Hono, web: Web) {
 	});
 
 	app.post('/automations/stop', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await owner(c);
 		if ('page' in found) return found.page;
 		runner.stop();
@@ -1149,6 +1246,7 @@ export function mountWeb(app: Hono, web: Web) {
 					</p>
 				)}
 				<form method="post" action="/settings" class="settings">
+					<Token />
 					<fieldset>
 						<legend>Plex server</legend>
 						<p class="hint">
@@ -1286,6 +1384,18 @@ export function mountWeb(app: Hono, web: Web) {
 								today's Describe Its on your Athena.
 							</span>
 						</label>
+						<div class="field" id="ownerAnywhere">
+							<span class="label">Owner pages from anywhere</span>
+							<label class="remove">
+								<input type="checkbox" name="ownerAnywhere" value="1" checked={effective.ownerAnywhere} /> Open Settings,
+								Automations and Share from outside home too
+							</label>
+							<span class="hint">
+								Off, they open only from your home network, on port {adminPort}, and the public address answers only
+								Ithaca, so nobody on the internet can reach your keys. On, they also open on port 8800 and at the public
+								address, behind Plex sign-in.
+							</span>
+						</div>
 					</fieldset>
 
 					<fieldset id="abs">
@@ -1625,7 +1735,7 @@ export function mountWeb(app: Hono, web: Web) {
 		);
 
 	app.post('/settings', async (c) => {
-		if (!sameSite(c)) return c.text('Forbidden', 403);
+		if (!(await fromHere(c))) return c.text('Forbidden', 403);
 		const found = await who(c);
 		if ('page' in found) return found.page;
 		const { s, role, servers } = found;
@@ -1682,6 +1792,7 @@ export function mountWeb(app: Hono, web: Web) {
 			if (text('elevenlabsKeyRemove')) patch.elevenlabsKey = null;
 			if (text('elevenlabsKey')) patch.elevenlabsKey = text('elevenlabsKey');
 		}
+		patch.ownerAnywhere = text('ownerAnywhere') === '1';
 		patch.ownerName = s.name;
 		patch.ownerId = s.accountId;
 		patch.ownerToken = s.token;
@@ -1698,9 +1809,12 @@ export function mountWeb(app: Hono, web: Web) {
 	 */
 	/** Settings' Audiobookshelf Test: signs in with the address and key typed (or saved) and lists the book libraries. */
 	app.post('/settings/test-abs', async (c) => {
-		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
+		if (!(await fromHere(c))) return c.json({ ok: false, message: 'Forbidden' }, 403);
 		const found = await who(c);
-		if ('page' in found) return c.json({ ok: false, message: 'Sign in again.' }, 401);
+		if ('page' in found)
+			return 'away' in found
+				? c.json({ ok: false, message: `Settings open only from your home network, on port ${adminPort}.` }, 403)
+				: c.json({ ok: false, message: 'Sign in again.' }, 401);
 		const setter = found.role === 'owner' || (found.role === 'setup' && found.servers.some((server) => server.owned));
 		if (!setter) return c.json({ ok: false, message: 'Only the owner can test this.' }, 403);
 		const form = await c.req.parseBody();
@@ -1729,9 +1843,12 @@ export function mountWeb(app: Hono, web: Web) {
 	});
 
 	app.post('/settings/test', async (c) => {
-		if (!sameSite(c)) return c.json({ ok: false, message: 'Forbidden' }, 403);
+		if (!(await fromHere(c))) return c.json({ ok: false, message: 'Forbidden' }, 403);
 		const found = await who(c);
-		if ('page' in found) return c.json({ ok: false, message: 'Sign in again.' }, 401);
+		if ('page' in found)
+			return 'away' in found
+				? c.json({ ok: false, message: `Settings open only from your home network, on port ${adminPort}.` }, 403)
+				: c.json({ ok: false, message: 'Sign in again.' }, 401);
 		// Test spends the key, so before setup only someone who could set Athena up may run it.
 		const setter = found.role === 'owner' || (found.role === 'setup' && found.servers.some((server) => server.owned));
 		if (!setter) return c.json({ ok: false, message: 'Only the owner can test keys.' }, 403);

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Live } from '../src/live';
@@ -32,6 +32,26 @@ test('an environment variable wins over a saved setting, and says so', () => {
 	expect(effective.anthropicKey).toBe('sk-ant-from-env');
 	expect(effective.model).toBe('claude-sonnet-5-5');
 	expect(effective.env).toEqual({ server: 'PLEX_URL', anthropicKey: 'ANTHROPIC_API_KEY' });
+});
+
+test('a key can come from the file its _FILE variable names, as Docker secrets and vault agents leave it', () => {
+	const data = dir();
+	const secret = join(data, 'typesafe');
+	writeFileSync(secret, 'ts-from-file\n');
+	const settings = new Settings(data, {
+		TYPESAFE_API_KEY_FILE: secret,
+		ANTHROPIC_API_KEY: 'sk-ant-from-env',
+		ANTHROPIC_API_KEY_FILE: secret,
+		ELEVENLABS_API_KEY_FILE: join(data, 'missing'),
+	});
+	settings.save({ typesafeKey: 'ts-saved', elevenlabsKey: 'eleven-saved' });
+	const effective = settings.effective();
+	expect(effective.typesafeKey).toBe('ts-from-file');
+	// The variable itself wins over its file, and a file that can't be read leaves the saved key in use.
+	expect(effective.anthropicKey).toBe('sk-ant-from-env');
+	expect(effective.elevenlabsKey).toBe('eleven-saved');
+	expect(effective.env).toEqual({ anthropicKey: 'ANTHROPIC_API_KEY', typesafeKey: 'TYPESAFE_API_KEY_FILE' });
+	expect(readFileSync(join(data, 'settings.json'), 'utf8')).not.toContain('ts-from-file');
 });
 
 test('no limit is stored as none', () => {

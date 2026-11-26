@@ -24,7 +24,7 @@ COPY tsconfig.json entrypoint.sh ./
 COPY public ./public
 COPY src ./src
 ENV PORT=8800 ATHENA_DATA=/data TZ=America/New_York
-EXPOSE 8800
+EXPOSE 8800 8801
 HEALTHCHECK --interval=60s --timeout=5s CMD curl -fsS http://localhost:8800/healthz || exit 1
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["bun", "run", "src/main.ts"]

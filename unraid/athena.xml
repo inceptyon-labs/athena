@@ -8,15 +8,16 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/inceptyon-labs/athena/issues</Support>
   <Project>https://github.com/inceptyon-labs/athena</Project>
-  <Overview>Athena answers Describe It in Ithaca, the Plex app for Apple TV, iPhone and iPad. You type what you're in the mood for, and the AI model you choose (Claude, GPT, Gemini, Grok, DeepSeek or a local model) picks from your own Plex library, with titles to request when Seerr is connected. Only people with access to your Plex server can use it. Run it next to Plex and Seerr. After installing, open the WebUI, sign in with Plex and choose an AI model. Keep port 8800 so your household's Ithaca finds Athena by itself; friends away from home reach it through your reverse proxy, like Seerr.</Overview>
+  <Overview>Athena answers Describe It in Ithaca, the Plex app for Apple TV, iPhone and iPad. You type what you're in the mood for, and the AI model you choose (Claude, GPT, Gemini, Grok, DeepSeek or a local model) picks from your own Plex library, with titles to request when Seerr is connected. Only people with access to your Plex server can use it. Run it next to Plex and Seerr. After installing, open the WebUI, sign in with Plex and choose an AI model. Keep port 8800 so your household's Ithaca finds Athena by itself; friends away from home reach it through your reverse proxy, like Seerr. Settings open on port 8801, from your home network only: never put a proxy in front of that one.</Overview>
   <Category>MediaServer:Video Tools:</Category>
-  <WebUI>http://[IP]:[PORT:8800]/</WebUI>
+  <WebUI>http://[IP]:[PORT:8801]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid/athena.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid-icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <Requires>A Plex Media Server, and an API key from Anthropic, OpenAI, Google, xAI or DeepSeek or a local model server such as Ollama. Ithaca for Plex with Ithaca Pro on your devices.</Requires>
-  <Config Name="WebUI and API port" Target="8800" Default="8800" Mode="tcp" Description="Keep 8800: Ithaca looks for Athena on this port on your Plex server's address." Type="Port" Display="always" Required="true" Mask="false">8800</Config>
+  <Config Name="API port" Target="8800" Default="8800" Mode="tcp" Description="Keep 8800: Ithaca looks for Athena on this port on your Plex server's address. Point a reverse proxy for friends here." Type="Port" Display="always" Required="true" Mask="false">8800</Config>
+  <Config Name="WebUI port" Target="8801" Default="8801" Mode="tcp" Description="Settings and Automations, which open only from your home network. Keep 8801, and never put a reverse proxy or tunnel in front of it." Type="Port" Display="always" Required="true" Mask="false">8801</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/athena" Mode="rw" Description="Settings, including your API keys (readable only by Athena), and the request log." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/athena</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User Athena runs as." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group Athena runs as." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>

@@ -11,7 +11,7 @@ import { Sessions } from '../src/sessions';
 import { Settings } from '../src/settings';
 import { Usage } from '../src/usage';
 import { qrSVG } from '../src/share';
-import { mountWeb } from '../src/web';
+import { type Door, mountWeb } from '../src/web';
 import { fakeAbs, fakePlex } from './helpers';
 
 const KEY = 'sk-ant-api03-very-secret-key-wxyz';
@@ -77,16 +77,33 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		ai: jobs.ai ?? live.ai,
 		...(jobs.cutter ? { cutter: jobs.cutter } : {}),
 	}));
-	mountWeb(app, { live, usage, runner, sessions: new Sessions() });
+	const sessions = new Sessions();
+	mountWeb(app, { live, usage, runner, sessions });
 
+	/** The owner at home on the admin port, unless a test says otherwise. */
+	const HOME: Door = { surface: 'admin', peer: '127.0.0.1' };
+	/** The session's form token, which Athena's own forms carry. */
+	const tokenOf = (cookie: string) => sessions.get(cookie.split('=')[1])?.form ?? '';
 	const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
-	const post = (path: string, fields: Record<string, string>, cookie = '', origin = 'http://athena:8800') =>
-		app.request(`http://athena:8800${path}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie, Origin: origin, Host: 'athena:8800' },
-			body: form(fields),
-		});
-	const get = (path: string, cookie = '') => app.request(`http://athena:8800${path}`, { headers: { Cookie: cookie, Host: 'athena:8800' } });
+	const post = (
+		path: string,
+		fields: Record<string, string>,
+		cookie = '',
+		origin = 'http://athena:8800',
+		door: Door = HOME,
+		headers: Record<string, string> = {},
+	) =>
+		app.request(
+			`http://athena:8800${path}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie, Origin: origin, Host: 'athena:8800', ...headers },
+				body: form({ _token: tokenOf(cookie), ...fields }),
+			},
+			door,
+		);
+	const get = (path: string, cookie = '', door: Door = HOME, headers: Record<string, string> = {}) =>
+		app.request(`http://athena:8800${path}`, { headers: { Cookie: cookie, Host: 'athena:8800', ...headers } }, door);
 
 	/** Signs in as the account with this Plex token and returns the session cookie. */
 	async function signIn(token: string) {
@@ -97,7 +114,7 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		const session = done.headers.getSetCookie().find((cookie) => cookie.startsWith('athena_session='));
 		return session?.split(';')[0] ?? '';
 	}
-	return { app, live, usage, runner, abs, scribed, post, get, signIn, setApprove: (token: string | null) => (approve = token) };
+	return { app, live, usage, runner, abs, scribed, post, get, signIn, tokenOf, setApprove: (token: string | null) => (approve = token) };
 }
 
 describe('sign in with Plex', () => {
@@ -121,7 +138,7 @@ describe('sign in with Plex', () => {
 		setApprove('owner-token');
 		const done = await get('/signin/done', pin);
 		expect(done.status).toBe(303);
-		expect(done.headers.getSetCookie().some((cookie) => cookie.startsWith('athena_session='))).toBe(true);
+		expect(done.headers.getSetCookie().find((cookie) => cookie.startsWith('athena_session='))).toContain('Max-Age=604800');
 	});
 
 	test("a return from Plex without this browser's sign-in doesn't sign anyone in", async () => {
@@ -131,9 +148,91 @@ describe('sign in with Plex', () => {
 		expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith('athena_session='))).toBe(false);
 	});
 
-	test('a form posted from another site is refused', async () => {
+	test('a form posted from another site, or from nowhere ("null"), is refused', async () => {
 		const { post } = athena();
 		expect((await post('/signin', {}, '', 'https://evil.example')).status).toBe(403);
+		expect((await post('/signin', {}, '', 'null')).status).toBe(403);
+	});
+
+	test("a form without this session's token is refused", async () => {
+		const { live, post, signIn } = athena({ server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY });
+		const cookie = await signIn('owner-token');
+		expect((await post('/settings', { _token: 'guessed', server: 'machine-1', anthropicKey: 'sk-ant-stolen' }, cookie)).status).toBe(403);
+		expect((await post('/signout', { _token: '' }, cookie)).status).toBe(403);
+		expect(live.effective.anthropicKey).toBe(KEY);
+	});
+
+	test('forwarding headers count only from a proxy on the home network', async () => {
+		const { post } = athena();
+		const signIn = (peer: string) =>
+			post('/signin', {}, '', 'https://athena.example.com', { surface: 'public', peer }, {
+				'X-Forwarded-Host': 'athena.example.com',
+				'X-Forwarded-Proto': 'https',
+			});
+		const proxied = await signIn('172.18.0.4');
+		expect(new URLSearchParams(proxied.headers.get('Location')?.split('#?')[1]).get('forwardUrl')).toBe('https://athena.example.com/signin/done');
+		// Straight from the internet the headers are ignored, so the form's origin isn't Athena's own address.
+		expect((await signIn('203.0.113.9')).status).toBe(403);
+	});
+});
+
+describe('owner pages stay home', () => {
+	const ready = { server: { id: 'machine-1', name: 'Uranus' }, anthropicKey: KEY, dailyLimit: 5 };
+	/** A request from the internet through a Cloudflare tunnel to the public port. */
+	const TUNNEL: Door = { surface: 'public', peer: '172.18.0.4' };
+	const CLOUDFLARE = { 'Cf-Connecting-IP': '203.0.113.7', 'X-Forwarded-For': '203.0.113.7' };
+
+	test('through a tunnel, the owner gets where Settings are, saving changes nothing, and friends still get their page', async () => {
+		const { live, get, post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const settings = await get('/settings', cookie, TUNNEL, CLOUDFLARE);
+		expect(settings.status).toBe(403);
+		expect(await settings.text()).toContain('Settings are on your home network');
+		expect((await get('/', cookie, TUNNEL, CLOUDFLARE)).status).toBe(403);
+		expect((await get('/automations', cookie, TUNNEL, CLOUDFLARE)).status).toBe(403);
+		const saved = await post('/settings', { server: 'machine-1', anthropicKey: 'sk-ant-new' }, cookie, 'http://athena:8800', TUNNEL, CLOUDFLARE);
+		expect(saved.status).toBe(403);
+		expect(live.effective.anthropicKey).toBe(KEY);
+		const friend = await get('/', await signIn('friend-token'), TUNNEL, CLOUDFLARE);
+		expect(await friend.text()).toContain('of 5 Describe Its today');
+	});
+
+	test('at home on the public port, an owner page sends the owner on to the admin port', async () => {
+		const { get, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const response = await get('/settings?saved', cookie, { surface: 'public', peer: '192.168.1.20' }, { Host: '192.168.1.10:8800' });
+		expect(response.status).toBe(303);
+		expect(response.headers.get('Location')).toBe('http://192.168.1.10:8801/settings?saved');
+	});
+
+	test('the admin port turns away the internet, even through a proxy with a home address added, but lets a VPN in', async () => {
+		const { get, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		const spoofed = { 'X-Forwarded-For': '192.168.1.5, 203.0.113.9' };
+		expect((await get('/settings', cookie, { surface: 'admin', peer: '172.18.0.4' }, spoofed)).status).toBe(403);
+		expect((await get('/settings', cookie, { surface: 'admin', peer: '203.0.113.9' })).status).toBe(403);
+		expect((await get('/settings', cookie, { surface: 'admin', peer: '100.101.102.103' })).status).toBe(200);
+		expect((await get('/settings', cookie, { surface: 'admin', peer: '172.18.0.4' }, { 'X-Forwarded-For': '192.168.1.5' })).status).toBe(200);
+	});
+
+	test('nobody sets Athena up from the internet', async () => {
+		const { live, get, post, signIn } = athena();
+		const cookie = await signIn('owner-token');
+		expect(await (await get('/settings', cookie, TUNNEL, CLOUDFLARE)).text()).toContain('Set Athena up from home');
+		await post('/settings', { server: 'machine-1', anthropicKey: KEY }, cookie, 'http://athena:8800', TUNNEL, CLOUDFLARE);
+		expect(live.effective.server).toBeNull();
+	});
+
+	test('with Owner pages from anywhere on, they open through the tunnel too', async () => {
+		const { live, get, post, signIn } = athena(ready);
+		const cookie = await signIn('owner-token');
+		expect(await (await get('/settings', cookie)).text()).toContain('name="_token"');
+		await post('/settings', { server: 'machine-1', ownerAnywhere: '1' }, cookie);
+		expect(live.ownerAnywhere).toBe(true);
+		expect((await get('/settings', cookie, TUNNEL, CLOUDFLARE)).status).toBe(200);
+		await post('/settings', { server: 'machine-1' }, cookie, 'http://athena:8800', TUNNEL, CLOUDFLARE);
+		expect(live.ownerAnywhere).toBe(false);
+		expect((await get('/settings', cookie, TUNNEL, CLOUDFLARE)).status).toBe(403);
 	});
 });
 
@@ -495,16 +594,17 @@ describe('automations', () => {
 	});
 
 	test('Test signs in to Audiobookshelf with what was typed, before saving', async () => {
-		const { app, signIn } = athena(ready);
+		const { app, signIn, tokenOf } = athena(ready);
 		const cookie = await signIn('owner-token');
 		const test = async (fields: Record<string, string>) => {
 			const body = new FormData();
+			body.set('_token', tokenOf(cookie));
 			for (const [key, value] of Object.entries(fields)) body.set(key, value);
-			const response = await app.request('http://athena:8800/settings/test-abs', {
-				method: 'POST',
-				headers: { Cookie: cookie, Origin: 'http://athena:8800', Host: 'athena:8800' },
-				body,
-			});
+			const response = await app.request(
+				'http://athena:8800/settings/test-abs',
+				{ method: 'POST', headers: { Cookie: cookie, Origin: 'http://athena:8800', Host: 'athena:8800' }, body },
+				{ surface: 'admin', peer: '127.0.0.1' } satisfies Door,
+			);
 			return (await response.json()) as { ok: boolean; message: string };
 		};
 		expect(await test({ absURL: 'http://abs:13378', absKey: 'abs-key' })).toEqual({

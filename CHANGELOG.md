@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Balanced and Best tiers, prices per Describe It, and a Test button.
 - Friends away from home: a public address, an `ithaca://` share link and QR code, a per-person daily limit.
 - Docker image workflow, Unraid template and Compose file.
+- Owner pages (Settings, Automations, Share and setup) on their own port, 8801, which opens only from the home
+  network, so a proxy or tunnel for friends puts only Describe It on the internet. Settings → Owner pages from
+  anywhere puts them back on 8800 behind Plex sign-in.
+- Each API key can be read from a file, as `<NAME>_FILE`, for Docker secrets or a vault's agent.
 
 ### Fixed
 - The daily limit held against requests sent at once, the same words sent over and over, and answers the model gave
@@ -20,3 +24,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings and the owner's exemption from the limit are for the Plex account that set Athena up, not every account
   plex.tv lists as owning the server.
 - Settings' error banner shows only Athena's own messages; the web UI sends a Content-Security-Policy and `nosniff`.
+- Every web form carries a per-sign-in token, a form from a page with no origin is refused, sign-ins last 7 days
+  instead of 30, and forwarded host and protocol headers count only from a proxy on the home network.

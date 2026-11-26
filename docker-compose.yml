@@ -13,25 +13,40 @@ services:
     ports:
       # The address to publish on: this machine's home-network address, so phones and TVs at home can reach it.
       # Never 0.0.0.0 on a machine that faces the internet.
+      # 8800 answers Ithaca; a reverse proxy or tunnel for friends away from home points here.
       - "${ATHENA_BIND:-127.0.0.1}:${ATHENA_PORT:-8800}:8800"
+      # Settings and Automations, which open only from the home network. Never put a proxy or tunnel in front of it.
+      - "${ATHENA_BIND:-127.0.0.1}:${ATHENA_ADMIN_PORT:-8801}:${ATHENA_ADMIN_PORT:-8801}"
     volumes:
       # Settings (API keys, mode 600) and the request log. Given to 99:100 at start; Athena runs as that user.
       - ./data:/data
     environment:
       TZ: ${TZ:-America/New_York}
+      # The same number inside and out, so the public port can link to it.
+      ADMIN_PORT: ${ATHENA_ADMIN_PORT:-8801}
       # All optional: set them in the browser instead. When set here, they win and the browser shows them locked.
+      # Each key can come from a file instead, such as a Docker secret: ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic,
+      # with the file mounted there in docker-compose.override.yml (`secrets:` or a read-only volume).
       PLEX_URL: ${PLEX_URL:-}
       ATHENA_PROVIDER: ${ATHENA_PROVIDER:-}
       ATHENA_MODEL: ${ATHENA_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_FILE: ${ANTHROPIC_API_KEY_FILE:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY_FILE: ${OPENAI_API_KEY_FILE:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY_FILE: ${GEMINI_API_KEY_FILE:-}
       XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_API_KEY_FILE: ${XAI_API_KEY_FILE:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_API_KEY_FILE: ${DEEPSEEK_API_KEY_FILE:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      TYPESAFE_API_KEY_FILE: ${TYPESAFE_API_KEY_FILE:-}
       ABS_URL: ${ABS_URL:-}
       ABS_API_KEY: ${ABS_API_KEY:-}
+      ABS_API_KEY_FILE: ${ABS_API_KEY_FILE:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_API_KEY_FILE: ${ELEVENLABS_API_KEY_FILE:-}
     labels:
-      net.unraid.docker.webui: "http://[IP]:[PORT:8800]/"
+      net.unraid.docker.webui: "http://[IP]:[PORT:8801]/"
       net.unraid.docker.icon: "https://raw.githubusercontent.com/inceptyon-labs/athena/main/unraid-icon.png"

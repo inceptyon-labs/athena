@@ -12,6 +12,7 @@ if (button) {
 	button.addEventListener('click', async () => {
 		const provider = form.querySelector('input[name="provider"]:checked')?.value ?? '';
 		const body = new FormData();
+		body.set('_token', value('_token'));
 		body.set('provider', provider);
 		body.set(`${provider}Key`, value(`${provider}Key`));
 		body.set('model', value(`model_${provider}`));
@@ -56,6 +57,7 @@ if (absButton) {
 	absButton.hidden = false;
 	absButton.addEventListener('click', async () => {
 		const body = new FormData();
+		body.set('_token', value('_token'));
 		body.set('absURL', value('absURL'));
 		body.set('absKey', value('absKey'));
 		absButton.disabled = true;

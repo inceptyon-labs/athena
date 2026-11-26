@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { warn } from './log';
 import { isProvider, type KeyName, keyName, modelOf, PROVIDERS, type ProviderId, providerOf } from './providers';
 
 /** What the owner sets in the browser, kept in the data volume. */
@@ -42,6 +43,11 @@ export type Stored = {
 	/** What turns speech to text for Titles from the audio. */
 	speech?: SpeechChoice | null;
 	elevenlabsKey?: string | null;
+	/**
+	 * Owner pages (Settings, Automations, Share) also open on the public port and from the internet, behind Plex
+	 * sign-in. Off: only on the admin port, from the home network.
+	 */
+	ownerAnywhere?: boolean | null;
 } & Partial<Record<KeyName, string | null>>;
 
 /** ElevenLabs Scribe, or whisper.cpp in the speech image. */
@@ -68,6 +74,7 @@ export type Effective = {
 	autoJobs: string[];
 	speech: SpeechChoice;
 	elevenlabsKey: string | null;
+	ownerAnywhere: boolean;
 	/** The environment variable that set each field, shown instead of the field in the browser. */
 	env: Partial<Record<'server' | 'provider' | 'model' | 'typesafeKey' | 'absURL' | 'absKey' | 'elevenlabsKey' | KeyName, string>>;
 } & Record<KeyName, string | null>;
@@ -99,14 +106,49 @@ function envProvider(env: Record<string, string | undefined>): { id: ProviderId;
 	return null;
 }
 
+/** The variables that hold keys: each can name a file instead, as `<NAME>_FILE`. */
+const SECRETS = [
+	...PROVIDERS.flatMap((provider) => (provider.keyEnv ? [provider.keyEnv] : [])),
+	'TYPESAFE_API_KEY',
+	'ABS_API_KEY',
+	'ELEVENLABS_API_KEY',
+];
+
+/**
+ * The environment with each key variable that isn't set read from the file its `_FILE` twin names, the way Docker
+ * secrets and vaults' agents hand keys over, and the name each value came from. Read once, when Athena starts.
+ */
+function withFiles(env: Record<string, string | undefined>) {
+	const resolved = { ...env };
+	const from: Record<string, string> = {};
+	for (const name of SECRETS) {
+		const path = blank(env[`${name}_FILE`]);
+		if (blank(env[name]) || !path) continue;
+		try {
+			const value = blank(readFileSync(path, 'utf8'));
+			if (value) {
+				resolved[name] = value;
+				from[name] = `${name}_FILE`;
+			} else warn(`${name}_FILE: ${path} is empty`);
+		} catch (error) {
+			warn(`${name}_FILE: can't read ${path} (${(error as NodeJS.ErrnoException).code ?? String(error)})`);
+		}
+	}
+	return { env: resolved, from };
+}
+
 export class Settings {
 	private stored: Stored;
 	private readonly file: string;
+	private readonly env: Record<string, string | undefined>;
+	/** Where each key variable's value came from, when it was a file. */
+	private readonly from: Record<string, string>;
 
 	constructor(
 		private readonly dir: string,
-		private readonly env: Record<string, string | undefined> = process.env,
+		env: Record<string, string | undefined> = process.env,
 	) {
+		({ env: this.env, from: this.from } = withFiles(env));
 		this.file = join(dir, 'settings.json');
 		this.stored = existsSync(this.file) ? (JSON.parse(readFileSync(this.file, 'utf8')) as Stored) : {};
 		if (!this.stored.clientId) this.save({ clientId: randomUUID() });
@@ -134,7 +176,7 @@ export class Settings {
 			const name = keyName(each.id);
 			const fromEnvKey = each.keyEnv ? blank(env[each.keyEnv]) : null;
 			keys[name] = fromEnvKey ?? stored[name] ?? null;
-			if (fromEnvKey && each.keyEnv) keyEnv[name] = each.keyEnv;
+			if (fromEnvKey && each.keyEnv) keyEnv[name] = this.named(each.keyEnv);
 		}
 		return {
 			plexURL,
@@ -156,17 +198,23 @@ export class Settings {
 			autoJobs: stored.autoJobs ?? [],
 			speech: stored.speech === 'whisper' ? 'whisper' : 'elevenlabs',
 			elevenlabsKey: elevenlabsKey ?? stored.elevenlabsKey ?? null,
+			ownerAnywhere: stored.ownerAnywhere === true,
 			env: {
 				...(plexURL ? { server: 'PLEX_URL' } : {}),
 				...(fromEnv ? { provider: fromEnv.from } : {}),
 				...(envModel ? { model: 'ATHENA_MODEL' } : {}),
 				...keyEnv,
-				...(typesafeKey ? { typesafeKey: 'TYPESAFE_API_KEY' } : {}),
+				...(typesafeKey ? { typesafeKey: this.named('TYPESAFE_API_KEY') } : {}),
 				...(absURL ? { absURL: 'ABS_URL' } : {}),
-				...(absKey ? { absKey: 'ABS_API_KEY' } : {}),
-				...(elevenlabsKey ? { elevenlabsKey: 'ELEVENLABS_API_KEY' } : {}),
+				...(absKey ? { absKey: this.named('ABS_API_KEY') } : {}),
+				...(elevenlabsKey ? { elevenlabsKey: this.named('ELEVENLABS_API_KEY') } : {}),
 			},
 		};
+	}
+
+	/** The variable a key came from, as the browser names it: `ANTHROPIC_API_KEY`, or `ANTHROPIC_API_KEY_FILE`. */
+	private named(name: string) {
+		return this.from[name] ?? name;
 	}
 
 	/** Merges and writes the file readable only by Athena, replacing it whole so a crash never leaves half of it. */

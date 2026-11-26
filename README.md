@@ -32,8 +32,8 @@ spend limit.
 
 ### Unraid
 
-In Community Apps, search for **Athena** and install it. Keep port 8800, and keep the data path
-(`/mnt/user/appdata/athena`) unless you store app data elsewhere. Then open the WebUI.
+In Community Apps, search for **Athena** and install it. Keep ports 8800 and 8801, and keep the data path
+(`/mnt/user/appdata/athena`) unless you store app data elsewhere. Then open the WebUI, which is on port 8801.
 
 ### Docker Compose
 
@@ -44,14 +44,15 @@ services:
     container_name: athena
     restart: unless-stopped
     ports:
-      - "192.168.1.10:8800:8800" # this machine's home-network address
+      - "192.168.1.10:8800:8800" # this machine's home-network address: Ithaca, and friends through your proxy
+      - "192.168.1.10:8801:8801" # Settings and Automations: the home network only, never through a proxy
     volumes:
       - ./data:/data
     environment:
       TZ: America/New_York
 ```
 
-`docker compose up -d`, then open `http://192.168.1.10:8800`. Publish the port on the machine's home-network address,
+`docker compose up -d`, then open `http://192.168.1.10:8801`. Publish both ports on the machine's home-network address,
 never `0.0.0.0` on a machine that faces the internet.
 
 To build from source instead, clone this repository, `cp .env.example .env`, set `ATHENA_BIND` in it, and run
@@ -59,7 +60,7 @@ To build from source instead, clone this repository, `cp .env.example .env`, set
 
 ## First run
 
-1. Open Athena in a browser and **Sign in with Plex**, with the account that owns your Plex server. Plex asks you to
+1. Open Athena in a browser at port 8801 and **Sign in with Plex**, with the account that owns your Plex server. Plex asks you to
    approve the sign-in, then sends you back.
 2. Choose your Plex server. Only people with access to it can use Athena, and only its owner can open Settings.
 3. Choose an AI model: the provider, its API key and a tier (Fast, Balanced or Best). Each tier shows its price and
@@ -79,6 +80,26 @@ they type goes on to the provider you chose (unless it's a local model).
 
 Settings are kept in the data folder, `settings.json`, readable only by Athena; API keys are never shown back in full
 or logged. The request log is `athena.db` in the same folder and keeps a little over a year.
+
+### Keeping keys safe
+
+- **Owner pages stay home.** Athena listens on two ports. 8800 answers Ithaca and friends; 8801 has Settings,
+  Automations and Share, and opens them only to a home-network address (private ranges, and the 100.64.0.0/10 range
+  Tailscale uses). Put a reverse proxy or tunnel in front of 8800 only. Port 8801 also turns away a request a proxy
+  says came from the internet, in case it's published by mistake. To change settings from away, use a VPN home, or
+  turn on Settings → Owner pages from anywhere, which puts them back on 8800 behind Plex sign-in.
+- **Keys in the browser** go into `settings.json`, which isn't encrypted: anyone who can read the data folder, or a
+  backup of it, can read them. Whoever has root on the machine can read them however they're stored.
+- **Keys from a vault or Docker secrets**: each key variable below can name a file instead, as `<NAME>_FILE` (such as
+  `ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic`). Athena reads it when it starts, keeps it only in memory and shows
+  the field locked. A vault's agent (1Password, Bitwarden Secrets Manager, Infisical, Vault) or Docker secrets can
+  write that file, so the key never goes into `settings.json` or the app-data backups. Restart Athena after the file
+  changes.
+- **Cap every key** where you make it: a monthly spend limit on the Anthropic workspace or OpenAI project, a credit
+  limit on the ElevenLabs key with only Speech to Text and User read allowed, an Audiobookshelf user who can update
+  books but isn't an admin. A leaked key then costs at most its cap.
+- Signing in lasts 7 days, and a restart signs everyone out. Every form carries a per-sign-in token, so another site
+  can't post one for you.
 
 ## Automations (Audiobookshelf)
 
@@ -125,7 +146,8 @@ Jobs run one at a time in the background and never slow Describe It; their log i
 ## Environment variables
 
 All optional. The ones that set something in Settings win over what's saved there, and Settings shows that field
-locked.
+locked. Each key (the `_API_KEY` variables) can instead be read from a file, named by the same variable with `_FILE`
+added ([Keeping keys safe](#keeping-keys-safe)).
 
 | Variable | What it sets |
 | --- | --- |
@@ -147,6 +169,7 @@ locked.
 | `PUID`, `PGID` | The user and group Athena runs as, and gives the data folder to. 99 and 100 (Unraid's nobody:users) by default |
 | `ATHENA_BIND` | Building from source only, in `.env`: this machine's home-network address, which Compose publishes Athena on |
 | `ATHENA_PORT` | Building from source only, in `.env`: the port Compose publishes. Keep 8800, the default, so Ithaca finds Athena by itself |
+| `ATHENA_ADMIN_PORT` | Building from source only, in `.env`: the port for Settings and Automations, home network only. 8801 by default |
 
 ## Who can use it
 
@@ -169,13 +192,14 @@ Ithaca shows them "You've used Describe It 20 times today on Jason's Athena. It 
 as Plex shows it.
 
 The first person to sign in to a new Athena chooses its Plex server from the servers they own, so set it up right
-after installing. From then on, only that Plex account opens Settings. To start over, stop Athena and delete
-`settings.json` from the data folder.
+after installing, from home: setup, like Settings, opens only on port 8801 from your home network. From then on, only
+that Plex account opens Settings. To start over, stop Athena and delete `settings.json` from the data folder.
 
 ## Friends away from home
 
 Without a public address, Athena is home-only. Friends who use your Plex from outside your home reach it the way they
-reach your Seerr: at an HTTPS address, through a reverse proxy with a certificate in front of port 8800, such as Caddy:
+reach your Seerr: at an HTTPS address, through a reverse proxy or Cloudflare Tunnel with a certificate in front of port
+8800 (never 8801), such as Caddy:
 
 ```
 athena.example.com {
@@ -189,8 +213,9 @@ Enter that address under Settings → Public address, then open **Share**. It sh
 - a QR code of that link: scanned with an iPhone or iPad camera, it opens Ithaca with the address filled in;
 - the address in large type, for Apple TV, where they type it in Ithaca under Settings → Athena.
 
-Ithaca saves the address and asks its usual question before the first request. The web page works at that address too.
-Friends' requests are on your API bill; set a daily limit if that worries you.
+Ithaca saves the address and asks its usual question before the first request. Friends can sign in at that address to
+see their own use; Settings stay on your home network. Friends' requests are on your API bill; set a daily limit if
+that worries you.
 
 ## Models and cost
 
@@ -306,7 +331,7 @@ with no AI model to fall back on, fails, or when plex.tv can't be reached to che
 
 ```bash
 bun install
-bun run start      # :8800, settings, the request log and the job log in ./data
+bun run start      # :8800 for Ithaca, :8801 for Settings; settings and logs in ./data
 bun test
 bun run check
 ```
