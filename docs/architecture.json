@@ -4,39 +4,39 @@
   "meta": {
     "title": "Athena architecture",
     "locale": "en",
-    "output": ".archify/architecture-athena-overview-20261125-211500/athena-overview.html",
+    "output": ".archify/architecture-athena-overview-20261126-095500/athena-overview.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "git@github.com:inceptyon-labs/athena.git",
-      "revision": "f11ce84a66a9eb388c41e476231be00a4a903cc0",
+      "revision": "627db78751965f90dd36659864c2bff7abecc223",
       "link_mode": "local-only"
     }
   },
   "components": [
     {
       "id": "web", "type": "frontend", "label": "Web UI", "sublabel": "status · Share · Settings",
-      "tag": "Plex PIN sign-in", "pos": [680, 100], "size": [170, 70],
+      "tag": "owner pages: admin port, home only", "pos": [680, 100], "size": [170, 70],
       "sources": [
-        { "path": "src/web.tsx", "line": 231, "end_line": 241, "label": "roleOf: roles from plex.tv servers" },
-        { "path": "src/web.tsx", "line": 297, "end_line": 379, "label": "Plex PIN sign-in, session cookie" },
-        { "path": "src/web.tsx", "line": 1591, "end_line": 1656, "label": "POST /settings: owner or setup only" }
+        { "path": "src/web.tsx", "line": 336, "end_line": 355, "label": "who: owner pages only on admin port, at home" },
+        { "path": "src/web.tsx", "line": 387, "end_line": 469, "label": "Plex PIN sign-in, 7-day session cookie" },
+        { "path": "src/web.tsx", "line": 1737, "end_line": 1803, "label": "POST /settings: form token, owner or setup" }
       ]
     },
     {
-      "id": "settings", "type": "database", "label": "Settings", "sublabel": "settings.json · env wins",
+      "id": "settings", "type": "database", "label": "Settings", "sublabel": "settings.json · env or *_FILE wins",
       "tag": "keys · mode 600", "pos": [1050, 100], "size": [180, 70],
       "sources": [
-        { "path": "src/settings.ts", "line": 115, "end_line": 170, "label": "effective(): env vars win" },
-        { "path": "src/settings.ts", "line": 173, "end_line": 180, "label": "save: mode 600, atomic rename" },
-        { "path": "src/live.ts", "line": 55, "end_line": 81, "label": "Live.refresh rebuilds AI and gate" }
+        { "path": "src/settings.ts", "line": 157, "end_line": 213, "label": "effective(): env vars win" },
+        { "path": "src/settings.ts", "line": 117, "end_line": 136, "label": "withFiles: keys from <NAME>_FILE" },
+        { "path": "src/settings.ts", "line": 220, "end_line": 228, "label": "save: mode 600, atomic rename" }
       ]
     },
     {
       "id": "browser", "type": "external", "label": "Browser", "sublabel": "owner and viewers",
       "pos": [80, 220], "size": [160, 68],
       "sources": [
-        { "path": "src/web.tsx", "line": 33, "end_line": 43, "label": "web UI for owner and viewers" },
-        { "path": "README.md", "line": 146, "end_line": 150, "label": "anyone with access can sign in" }
+        { "path": "src/web.tsx", "line": 35, "end_line": 52, "label": "two ports: public 8800, admin 8801" },
+        { "path": "README.md", "line": 187, "end_line": 190, "label": "anyone with access can sign in" }
       ]
     },
     {
@@ -60,15 +60,15 @@
       "pos": [80, 350], "size": [160, 76],
       "sources": [
         { "path": "src/pick.ts", "line": 41, "end_line": 62, "label": "PickRequest: what Ithaca sends" },
-        { "path": "README.md", "line": 71, "end_line": 73, "label": "Ithaca finds port 8800 at home" }
+        { "path": "README.md", "line": 76, "end_line": 78, "label": "Ithaca finds port 8800 at home" }
       ]
     },
     {
-      "id": "serve", "type": "backend", "label": "Bun.serve :8800", "sublabel": "main.ts · one Hono app",
+      "id": "serve", "type": "backend", "label": "Bun.serve :8800 + :8801", "sublabel": "main.ts · one Hono app, two ports",
       "pos": [380, 350], "size": [160, 76],
       "sources": [
-        { "path": "src/main.ts", "line": 10, "end_line": 17, "label": "umask 077, port, data dir" },
-        { "path": "src/main.ts", "line": 32, "end_line": 35, "label": "createApp + mountWeb on Bun.serve" }
+        { "path": "src/main.ts", "line": 12, "end_line": 17, "label": "umask 077, public and admin ports, data dir" },
+        { "path": "src/main.ts", "line": 35, "end_line": 45, "label": "mountWeb; Bun.serve per port with its Door" }
       ]
     },
     {
@@ -135,12 +135,12 @@
       ]
     },
     {
-      "id": "proxy", "type": "external", "label": "Reverse proxy", "sublabel": "owner's HTTPS, e.g. Caddy",
+      "id": "proxy", "type": "external", "label": "Reverse proxy or tunnel", "sublabel": "owner's HTTPS to :8800 only",
       "pos": [80, 730], "size": [160, 64],
       "sources": [
-        { "path": "README.md", "line": 170, "end_line": 179, "label": "HTTPS reverse proxy to :8800" },
-        { "path": "src/settings.ts", "line": 19, "end_line": 20, "label": "publicURL through the proxy" },
-        { "path": "src/web.tsx", "line": 51, "end_line": 57, "label": "X-Forwarded-Proto and -Host" }
+        { "path": "README.md", "line": 200, "end_line": 207, "label": "HTTPS proxy or tunnel to :8800, never 8801" },
+        { "path": "src/settings.ts", "line": 20, "end_line": 21, "label": "publicURL through the proxy" },
+        { "path": "src/web.tsx", "line": 65, "end_line": 101, "label": "forwarded headers trusted only from home" }
       ]
     },
     {
@@ -155,7 +155,7 @@
       "id": "friends", "type": "external", "label": "Friends' Ithaca", "sublabel": "away from home",
       "pos": [80, 880], "size": [160, 60],
       "sources": [
-        { "path": "README.md", "line": 181, "end_line": 188, "label": "Share: link, QR, address" },
+        { "path": "README.md", "line": 210, "end_line": 214, "label": "Share: link, QR, address" },
         { "path": "src/share.ts", "line": 3, "end_line": 21, "label": "https address, ithaca:// link" }
       ]
     },
@@ -165,7 +165,7 @@
       "sources": [
         { "path": "src/jobs.ts", "line": 189, "end_line": 261, "label": "Runner.start: one run at a time" },
         { "path": "src/jobs.ts", "line": 314, "end_line": 340, "label": "decide: Approve writes one book" },
-        { "path": "src/web.tsx", "line": 1004, "end_line": 1057, "label": "Read, Approve, Reject: owner only" }
+        { "path": "src/web.tsx", "line": 1117, "end_line": 1171, "label": "Read, Approve, Reject: owner only" }
       ]
     },
     {
@@ -189,8 +189,8 @@
       "id": "elevenlabs", "type": "external", "label": "ElevenLabs Scribe", "sublabel": "speech to text · $0.20 an hour",
       "pos": [1420, 880], "size": [190, 64],
       "sources": [
-        { "path": "src/speech.ts", "line": 19, "end_line": 24, "label": "scribe_v3, $0.20 per audio hour" },
-        { "path": "src/speech.ts", "line": 30, "end_line": 93, "label": "elevenLabs(): one clip per request" }
+        { "path": "src/speech.ts", "line": 21, "end_line": 26, "label": "scribe_v3, $0.20 per audio hour" },
+        { "path": "src/speech.ts", "line": 32, "end_line": 104, "label": "elevenLabs(): one clip per request, credits" }
       ]
     }
   ],
@@ -210,9 +210,9 @@
   ],
   "connections": [
     { "id": "friends-to-proxy", "from": "friends", "to": "proxy", "label": "HTTPS" },
-    { "id": "proxy-to-serve", "from": "proxy", "to": "serve", "label": "forwards to :8800" },
+    { "id": "proxy-to-serve", "from": "proxy", "to": "serve", "label": "forwards to :8800 only" },
     { "id": "ithaca-to-serve", "from": "ithaca", "to": "serve", "label": "HTTP :8800", "variant": "emphasis" },
-    { "id": "browser-to-serve", "from": "browser", "to": "serve", "label": "web pages" },
+    { "id": "browser-to-serve", "from": "browser", "to": "serve", "label": "web pages; owner on :8801" },
     { "id": "serve-to-api", "from": "serve", "to": "api", "label": "/v1/pick", "variant": "emphasis" },
     { "id": "serve-to-web", "from": "serve", "to": "web", "label": "/, /share, /settings" },
     { "id": "api-to-plex", "from": "api", "to": "plex", "label": "viewer(X-Plex-Token)", "variant": "security" },
@@ -227,7 +227,7 @@
     { "id": "jev-to-typesafe", "from": "jev", "to": "typesafe", "label": "POST /v1/systemone" },
     { "id": "compat-to-openai", "from": "compat", "to": "openai", "label": "POST /chat/completions" },
     { "id": "compat-to-local", "from": "compat", "to": "local", "label": "same API, no key" },
-    { "id": "serve-to-automations", "from": "serve", "to": "automations", "label": "/automations (owner)" },
+    { "id": "serve-to-automations", "from": "serve", "to": "automations", "label": "/automations (owner, :8801)" },
     { "id": "automations-to-abs", "from": "automations", "to": "abs", "label": "read, re-read, save" },
     { "id": "abs-to-audnexus", "from": "abs", "to": "audnexus", "label": "chapter lookups" },
     { "id": "automations-to-elevenlabs", "from": "automations", "to": "elevenlabs", "label": "chapter openings, if chosen", "fromSide": "right", "toSide": "left", "via": [[660, 624], [660, 912]] }
@@ -246,9 +246,9 @@
     {
       "dot": "rose", "title": "Trust boundaries",
       "items": [
-        "Home network: compose publishes :8800 on one address (127.0.0.1 by default), never 0.0.0.0",
-        "Internet: friends reach Athena only through the owner's HTTPS reverse proxy",
-        "Athena container: API keys live in settings.json (mode 600, umask 077); it runs as 99:100",
+        "Home network: compose publishes :8800 (Ithaca) and :8801 (owner pages) on one address (127.0.0.1 by default), never 0.0.0.0",
+        "Internet: friends reach :8800 only through the owner's HTTPS proxy or tunnel; owner pages refuse anything not from home, unless Owner pages from anywhere is on",
+        "Athena container: API keys live in settings.json (mode 600, umask 077), or come from <NAME>_FILE and stay in memory; it runs as 99:100",
         "Viewers' Plex tokens: SHA-256 hashes in PlexGate's cache; only the owner's is saved, to read the share list",
         "Third-party AI gets the request text and library titles; a local model keeps them on the LAN",
         "Automations: the Audiobookshelf key stays in settings.json; ElevenLabs, if chosen, gets only each chapter’s first seconds; Whisper keeps them in the container"
@@ -258,8 +258,9 @@
       "dot": "violet", "title": "Settings and web UI",
       "items": [
         "Live (live.ts) is the API's deps object: a save rebuilds the AI client, and PlexGate when the server changes",
-        "Env vars (PLEX_URL, ATHENA_PROVIDER, ATHENA_MODEL, *_API_KEY) win over settings.json and show locked",
-        "Only the Plex server's owner saves; before a server is chosen, the first person to sign in sets it up",
+        "Env vars (PLEX_URL, ATHENA_PROVIDER, ATHENA_MODEL, *_API_KEY or *_API_KEY_FILE) win over settings.json and show locked",
+        "Only the Plex server’s owner saves, on the admin port from home; before a server is chosen, the first person to sign in there sets it up",
+        "Every POST but /signin carries the session’s form token; sign-ins last 7 days, in memory",
         "Settings Test runs a 3-title sample through makeAI and ai.pick, without logging it",
         "The status page reads athena.db; Share renders the ithaca://athena?url= link and its QR code (share.ts)"
       ]
@@ -267,7 +268,7 @@
     {
       "dot": "slate", "title": "Deployment",
       "items": [
-        "Dockerfile: oven/bun image, PORT 8800, ATHENA_DATA=/data, healthcheck on GET /healthz",
+        "Dockerfile: oven/bun image, PORT 8800 and ADMIN_PORT 8801, ATHENA_DATA=/data, healthcheck on GET /healthz",
         "docker-compose.yml mounts ./data:/data for settings.json and athena.db",
         "entrypoint.sh gives /data to PUID:PGID (99:100) and drops root",
         "With PLEX_URL set, PlexGate reads that Plex server's /identity for its machine id, then asks plex.tv",
