@@ -64,7 +64,7 @@ export const chapterNames: Job = {
 				try {
 					const planned = ctx.plan?.[book.id];
 					const settled = planned ? await rename(ctx, book, planned) : await check(ctx, book);
-					if (settled) ctx.state.set(seenKey(book.id), JSON.stringify({ print: fingerprint(book), at: ctx.now() }));
+					if (settled) ctx.state.set(seenKey(book.id), JSON.stringify({ print: fingerprint(book, ctx.region), at: ctx.now() }));
 				} catch (error) {
 					ctx.record({
 						item: book.id,
@@ -95,8 +95,12 @@ export const chapterNames: Job = {
 
 const seenKey = (id: string) => `seen:${id}`;
 
-/** What the library listing says about a book that would change when it's matched, re-chaptered or replaced. */
-const fingerprint = (book: AbsBook) => [book.updatedAt, book.asin, book.numChapters, book.duration].join('|');
+/**
+ * What the library listing says about a book that would change when it's matched, re-chaptered or replaced, and the
+ * Audible store it was looked up in.
+ */
+const fingerprint = (book: AbsBook, region: string) =>
+	[book.updatedAt, book.asin, book.numChapters, book.duration, region].join('|');
 
 /** Settled by an earlier run, listed the same since, and looked at within `RECHECK`. */
 function unchanged(ctx: JobContext, book: AbsBook) {
@@ -104,7 +108,7 @@ function unchanged(ctx: JobContext, book: AbsBook) {
 	if (!seen) return false;
 	try {
 		const { print, at } = JSON.parse(seen) as { print: string; at: number };
-		return print === fingerprint(book) && ctx.now() - at < RECHECK;
+		return print === fingerprint(book, ctx.region) && ctx.now() - at < RECHECK;
 	} catch {
 		return false;
 	}

@@ -195,10 +195,11 @@ describe('renaming, Undo and the schedule', () => {
 		expect(base.books.dune?.media.chapters.map((chapter) => chapter.title)).toEqual(['Chapter 1', 'Chapter 2']);
 	});
 
-	test('a scheduled run looks again at a book matched since, and at every book after a week', async () => {
+	test('a scheduled run looks again at a book matched since, at every book in another Audible store, and after a week', async () => {
 		const { abs, books, fetched } = fakeAbs();
 		let at = 1_000_000;
-		const runner = new Runner(':memory:', JOBS, () => ({ abs, region: 'us', auto: () => true }), () => at);
+		let region = 'us';
+		const runner = new Runner(':memory:', JOBS, () => ({ abs, region, auto: () => true }), () => at);
 		runner.tick();
 		await runner.idle();
 		const first = fetched();
@@ -209,9 +210,15 @@ describe('renaming, Undo and the schedule', () => {
 		await runner.idle();
 		expect(fetched() - first).toBe(1);
 
-		at += 7 * 86_400_000;
+		region = 'uk';
+		at += EVERY;
 		runner.tick();
 		await runner.idle();
 		expect(fetched() - first).toBe(1 + 3);
+
+		at += 7 * 86_400_000;
+		runner.tick();
+		await runner.idle();
+		expect(fetched() - first).toBe(1 + 3 + 3);
 	});
 });
