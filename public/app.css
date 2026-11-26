@@ -532,6 +532,19 @@ tr.failed td.answer {
 	color: var(--bad);
 }
 
+/* ElevenLabs credits: a line and a slim gauge of what's used. */
+
+.credits p {
+	margin: 0 0 6px;
+	font-size: 0.875rem;
+}
+
+.credits meter {
+	width: 100%;
+	max-width: 420px;
+	height: 6px;
+}
+
 /* Titles from the audio: Approve and Reject side by side, and a reading's chapters folded under its line. */
 
 form.decide {

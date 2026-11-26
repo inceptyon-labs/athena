@@ -5,7 +5,7 @@ import { type AI, claude } from './pick';
 import { PlexGate, PlexTV } from './plex';
 import { keyName, type ProviderId, providerOf } from './providers';
 import { type Effective, Settings } from './settings';
-import { elevenLabs, type Speech, whisper, whisperModel } from './speech';
+import { type ElevenLabsAccount, elevenLabs, elevenLabsAccount, type Speech, whisper, whisperModel } from './speech';
 
 /** The model that answers, or null until its key (or a local server's address and model) is set. */
 export function makeAI(now: Effective, fetcher: typeof fetch = fetch): AI | null {
@@ -39,6 +39,7 @@ export class Live {
 	speech: Speech | null = null;
 	readonly plexTV: PlexTV;
 	private where: string | null = null;
+	private account: { key: string; at: number; value: Promise<ElevenLabsAccount | { error: string }> } | null = null;
 
 	constructor(
 		readonly settings: Settings,
@@ -50,6 +51,23 @@ export class Live {
 
 	get effective(): Effective {
 		return this.settings.effective();
+	}
+
+	/**
+	 * The ElevenLabs plan's credits for the Automations page, asked at most once a minute; null unless ElevenLabs is
+	 * the chosen speech to text and has a key.
+	 */
+	elevenLabsAccount(now = Date.now()): Promise<ElevenLabsAccount | { error: string }> | null {
+		const effective = this.effective;
+		const key = effective.elevenlabsKey;
+		if (effective.speech !== 'elevenlabs' || !key) return null;
+		if (!this.account || this.account.key !== key || now - this.account.at > 60_000)
+			this.account = {
+				key,
+				at: now,
+				value: elevenLabsAccount(key, this.fetcher).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })),
+			};
+		return this.account.value;
 	}
 
 	refresh() {

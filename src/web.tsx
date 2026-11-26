@@ -25,7 +25,7 @@ import {
 import { hasFfmpeg } from './clips';
 import type { Heard } from './jobs/audio-titles';
 import { AUDIBLE_REGIONS, type Effective, mask } from './settings';
-import { SCRIBE_MODEL, whisperModel, whisperName } from './speech';
+import { type ElevenLabsAccount, SCRIBE_MODEL, whisperModel, whisperName } from './speech';
 import { publicAddress, qrSVG, shareLink } from './share';
 import type { Session, Sessions } from './sessions';
 import type { Entry, Usage } from './usage';
@@ -750,6 +750,7 @@ export function mountWeb(app: Hono, web: Web) {
 		const running = runner.running;
 		const runs = runner.runs(20);
 		const problem = RUN_PROBLEMS.get(c.req.query('problem') ?? '') ?? null;
+		const credits = await live.elevenLabsAccount();
 		return c.html(
 			<Layout title="Automations" signedIn={found.s} nav="automations" automations refresh={running ? 3 : undefined}>
 				<div class="page-head">
@@ -811,6 +812,7 @@ export function mountWeb(app: Hono, web: Web) {
 								</>
 							)}
 							{job.id === 'audio-titles' && <p class="hint">{titlesReady()}</p>}
+							{job.id === 'audio-titles' && credits && <Credits account={credits} />}
 							<div class="actions">
 								{mine ? (
 									<form method="post" action="/automations/stop">
@@ -878,6 +880,7 @@ export function mountWeb(app: Hono, web: Web) {
 		const problem = RUN_PROBLEMS.get(c.req.query('problem') ?? '') ?? null;
 		const next = job?.next && run.dryRun ? job.next : null;
 		const busy = runner.running !== null;
+		const credits = run.job === 'audio-titles' ? await live.elevenLabsAccount() : null;
 		return c.html(
 			<Layout
 				title={job?.title ?? 'Run'}
@@ -891,6 +894,7 @@ export function mountWeb(app: Hono, web: Web) {
 					<p class="lede">
 						{summary(run, items)} <a href="/automations">Automations</a>
 					</p>
+					{credits && <Credits account={credits} />}
 				</div>
 				{problem && (
 					<p class="banner error" role="alert">
@@ -1497,6 +1501,26 @@ export function mountWeb(app: Hono, web: Web) {
 		);
 	};
 
+	/** What's left of the ElevenLabs plan's credits this period, and what speech to text has used of them. */
+	const Credits: FC<{ account: ElevenLabsAccount | { error: string } }> = ({ account }) => {
+		if ('error' in account) return <p class="hint credits">ElevenLabs credits: {account.error}</p>;
+		const left = Math.max(0, account.limit - account.used);
+		const plan = account.plan.charAt(0).toUpperCase() + account.plan.slice(1);
+		const renews = account.renews ? new Date(account.renews).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+		return (
+			<div class="credits">
+				<p>
+					<strong>{left.toLocaleString('en-US')}</strong> of {account.limit.toLocaleString('en-US')} ElevenLabs credits left
+					{renews ? `, renewing ${renews}` : ''} ({plan} plan).
+					{account.speech !== null && ` Speech to text has used ${account.speech.toLocaleString('en-US')} this period.`}
+				</p>
+				<meter min={0} max={account.limit || 1} value={account.used} low={account.limit * 0.75} high={account.limit * 0.9} optimum={0}>
+					{account.used.toLocaleString('en-US')} used
+				</meter>
+			</div>
+		);
+	};
+
 	/** A reading's titles, chapter by chapter, beside what was heard: folded away until opened. */
 	const Proposal: FC<{ before: string[]; after: Heard[] }> = ({ before, after }) => (
 		<details class="proposal">
@@ -1553,7 +1577,7 @@ export function mountWeb(app: Hono, web: Web) {
 					label="ElevenLabs API key"
 					current={effective.elevenlabsKey}
 					env={effective.env.elevenlabsKey}
-					hint={`Make one at elevenlabs.io under Developers › API Keys, with Speech to Text allowed. Athena uses ${SCRIBE_MODEL} and sends only the chapter openings.`}
+					hint={`Make one at elevenlabs.io under Developers › API Keys, with Speech to Text allowed, and User read to show its credits on Automations. Paste the key itself (it starts with sk_), not its ID. Athena uses ${SCRIBE_MODEL} and sends only the chapter openings.`}
 				/>
 			</>
 		);

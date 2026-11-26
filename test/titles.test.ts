@@ -7,7 +7,7 @@ import type { AI } from '../src/pick';
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type Speech, whisper } from '../src/speech';
+import { elevenLabs, elevenLabsAccount, monthsBefore, type Speech, whisper } from '../src/speech';
 import { cleanTitles, named } from '../src/titles';
 import { fakeAbs } from './helpers';
 
@@ -33,8 +33,10 @@ function setup() {
 		name: 'Scribe',
 		perHour: 0.2,
 		format: 'mp3',
-		transcribe: async (clips) =>
-			clips.map((clip) => (clip.lead ? 'end of one.' : clip.chapter === 0 ? 'This is Audible. Chapter one. The Watsons.' : 'Chapter two, Mr Knightley.')),
+		transcribe: async (clips) => ({
+			texts: clips.map((clip) => (clip.lead ? 'end of one.' : clip.chapter === 0 ? 'This is Audible. Chapter one. The Watsons.' : 'Chapter two, Mr Knightley.')),
+			credits: 13,
+		}),
 	};
 	const asked: string[] = [];
 	const ai: AI = {
@@ -102,7 +104,11 @@ describe('titles from the audio', () => {
 		const { read } = await readAll(runner, 'emma');
 		const emma = runner.items(read)[0];
 		expect(emma?.outcome).toBe('proposed');
-		expect(emma?.detail).toStartWith('Chapter 1 → Chapter 1: The Watsons, Chapter 2 → Chapter 2: Mr. Knightley (2 of 2 titles change). Read 43s with Scribe');
+		expect(emma?.detail).toStartWith('Chapter 1 → Chapter 1: The Watsons, Chapter 2 → Chapter 2: Mr. Knightley (2 of 2 titles change). Read 43s with Scribe (13 credits)');
+		// The next check estimates in credits, at the rate that reading was charged.
+		const again = runner.start('audio-titles', { dryRun: true }) as number;
+		await runner.idle();
+		expect(runner.items(again).find((item) => item.item === 'emma')?.detail).toEndWith('43s of audio to read, about 13 credits with Scribe.');
 		expect(emma?.after).toEqual([
 			{ id: 0, start: 0, end: 500, title: 'Chapter 1: The Watsons', lead: '', heard: 'This is Audible. Chapter one. The Watsons.' },
 			{ id: 1, start: 500, end: 1000, title: 'Chapter 2: Mr. Knightley', lead: 'end of one.', heard: 'Chapter two, Mr Knightley.' },
@@ -152,7 +158,7 @@ describe('titles from the audio', () => {
 			},
 			titles: async () => ({ titles: ['Chapter 1: The Watsons', 'Chapter 2: Mr. Knightley'], usage: { input_tokens: 1, output_tokens: 1 } }),
 		};
-		const speech: Speech = { id: 'whisper', name: 'Whisper', perHour: 0, format: 'wav', transcribe: async (clips) => clips.map(() => 'words') };
+		const speech: Speech = { id: 'whisper', name: 'Whisper', perHour: 0, format: 'wav', transcribe: async (clips) => ({ texts: clips.map(() => 'words'), credits: null }) };
 		const runner = new Runner(':memory:', JOBS, () => ({ abs, region: 'us', auto: () => false, speech, ai, cutter }));
 		const { read } = await readAll(runner, 'emma');
 		const emma = runner.items(read)[0];
@@ -263,7 +269,7 @@ describe('titles from the audio', () => {
 		writeFileSync(cli, '#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ "$1" = -f ]; then grep -q damaged "$2" || cp "$2" "$2.txt"; shift; fi; shift; done\nexit 1\n');
 		chmodSync(cli, 0o755);
 		const clip = (chapter: number, lead: boolean, text: string) => ({ chapter, lead, audio: new TextEncoder().encode(text), seconds: 3 });
-		const texts = await whisper('/models/ggml-small.en.bin', { cli }).transcribe([
+		const { texts, credits } = await whisper('/models/ggml-small.en.bin', { cli }).transcribe([
 			clip(0, false, 'Chapter one.'),
 			clip(1, true, 'the end.'),
 			clip(1, false, 'Chapter two. [BLANK_AUDIO]'),
@@ -271,6 +277,50 @@ describe('titles from the audio', () => {
 			{ chapter: 3, lead: false, audio: new Uint8Array(), seconds: 0 },
 		]);
 		expect(texts).toEqual(['Chapter one.', 'the end.', 'Chapter two.', '', '']);
+		expect(credits).toBeNull();
+	});
+
+	test("ElevenLabs' answers say what each clip cost, and the account says what's left", async () => {
+		const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+			const path = new URL(String(url)).pathname;
+			if (new Headers(init?.headers).get('xi-api-key') !== 'eleven-fake-0000')
+				return Response.json({ detail: { code: 'unauthorized', message: 'The API key you used is missing the permission user_read' } }, { status: 401 });
+			if (path === '/v1/speech-to-text') return Response.json({ text: ' Chapter one. ' }, { headers: { 'character-cost': '6' } });
+			if (path === '/v1/user/subscription')
+				return Response.json({ tier: 'starter', character_count: 843, character_limit: 80_339, next_character_count_reset_unix: 1_798_053_805, billing_period: 'monthly_period' });
+			if (path === '/v1/usage/character-stats') return Response.json({ time: [1, 2], usage: { STT: [0, 206], TTS: [247, 30] } });
+			return new Response('', { status: 404 });
+		}) as typeof fetch;
+		const clip = (chapter: number) => ({ chapter, lead: false, audio: new Uint8Array([1]), seconds: 20 });
+		const heard = await elevenLabs('eleven-fake-0000', { fetcher }).transcribe([clip(0), clip(1), { chapter: 2, lead: false, audio: new Uint8Array(), seconds: 0 }]);
+		expect(heard).toEqual({ texts: ['Chapter one.', 'Chapter one.', ''], credits: 12 });
+		expect(await elevenLabsAccount('eleven-fake-0000', fetcher)).toEqual({
+			plan: 'starter',
+			used: 843,
+			limit: 80_339,
+			renews: 1_798_053_805_000,
+			speech: 206,
+		});
+		await expect(elevenLabsAccount('another-key', fetcher)).rejects.toThrow('give it the User read permission');
+		// Usage is counted from the start of the credit period, three months back on a quarterly refresh.
+		const asked = new URLSearchParams();
+		const quarterly = (async (url: string | URL | Request) => {
+			if (new URL(String(url)).pathname === '/v1/user/subscription')
+				return Response.json({ tier: 'pro', character_count: 1, character_limit: 2, next_character_count_reset_unix: Date.UTC(2027, 0, 15, 14, 23) / 1000, character_refresh_period: '3_month_period', billing_period: 'annual_period' });
+			for (const [name, value] of new URL(String(url)).searchParams) asked.set(name, value);
+			return Response.json({ usage: { STT: [5] } });
+		}) as unknown as typeof fetch;
+		expect((await elevenLabsAccount('k', quarterly, () => Date.UTC(2026, 11, 2, 9))).speech).toBe(5);
+		// Whole UTC days, from the period's first to today's last second.
+		expect(new Date(Number(asked.get('start_unix'))).toISOString()).toBe('2026-10-15T00:00:00.000Z');
+		expect(new Date(Number(asked.get('end_unix'))).toISOString()).toBe('2026-12-02T23:59:59.000Z');
+
+		// An answer without its cost leaves the total unknown rather than low.
+		const uncosted = (async () => Response.json({ text: 'x' })) as unknown as typeof fetch;
+		expect((await elevenLabs('eleven-fake-0000', { fetcher: uncosted }).transcribe([clip(0)])).credits).toBeNull();
+		// A period counted back from a renewal on the 31st starts on the last day of a shorter month.
+		expect(new Date(monthsBefore(Date.UTC(2027, 2, 31, 12), 1)).toISOString()).toBe('2027-02-28T12:00:00.000Z');
+		expect(new Date(monthsBefore(Date.UTC(2027, 0, 15), 3)).toISOString()).toBe('2026-10-15T00:00:00.000Z');
 	});
 
 	test('titles are one per chapter, and only numbers or credits are no titles', () => {

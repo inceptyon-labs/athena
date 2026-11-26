@@ -113,7 +113,8 @@ turns them into text, and has the AI model you chose for Describe It write the t
 Speech to text is your choice in Settings:
 
 - **ElevenLabs Scribe**, with an ElevenLabs API key: $0.20 an hour of audio, billed by the second, so about 5¢ for a
-  book of 40 chapters. Only the chapter openings are sent.
+  book of 40 chapters. Only the chapter openings are sent. Each reading's log says how many credits it used, and with
+  the key's User read permission the Automations page shows how many are left on your plan.
 - **Whisper on this server**, free, with whisper.cpp. Only the speech image has it.
 
 Both need the **speech image**, which adds ffmpeg and whisper.cpp to Athena (about 1.2 GB). Building from source, set

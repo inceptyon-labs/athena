@@ -163,7 +163,15 @@ async function check(ctx: JobContext, listed: AbsBook) {
 	}
 	const seconds = chapters.reduce((sum, chapter) => sum + clipLength(chapter), 0);
 	const speech = ctx.speech;
-	const estimate = speech ? (speech.perHour ? `, about ${price((seconds / 3600) * speech.perHour)} with ${speech.name}` : `, free with ${speech.name}`) : '';
+	// In credits at the rate the last reading was charged, once there's been one; until then at the list price.
+	const rate = Number(ctx.state.get(RATE));
+	const estimate = !speech
+		? ''
+		: !speech.perHour
+			? `, free with ${speech.name}`
+			: rate > 0
+				? `, about ${credits(seconds * rate)} with ${speech.name}`
+				: `, about ${price((seconds / 3600) * speech.perHour)} with ${speech.name}`;
 	ctx.record({
 		item: book.id,
 		title: book.title,
@@ -196,11 +204,12 @@ async function read(ctx: JobContext, plan: NonNullable<JobContext['plan']>) {
 				ctx.record({ item: id, title, outcome: 'changed', detail: 'Left alone.', before });
 			} else {
 				const clips = await chapterClips(ctx.abs, book, book.chapters, { format: speech.format, signal: ctx.signal, cutter });
-				const texts = await speech.transcribe(clips, ctx.signal);
+				const { texts, credits: charged } = await speech.transcribe(clips, ctx.signal);
 				const leads = book.chapters.map(() => '');
 				const heard = book.chapters.map(() => '');
 				for (const [index, clip] of clips.entries()) (clip.lead ? leads : heard)[clip.chapter] = texts[index] ?? '';
 				const seconds = clips.reduce((sum, clip) => sum + clip.seconds, 0);
+				if (charged && seconds > 0) ctx.state.set(RATE, String(charged / seconds));
 				const answer = await ai.titles({
 					book: book.title,
 					author: book.author,
@@ -220,7 +229,8 @@ async function read(ctx: JobContext, plan: NonNullable<JobContext['plan']>) {
 				const damaged = cut.length
 					? ` ${cut.length === 1 ? `Chapter ${cut[0]}` : `Chapters ${cut.join(', ')}`} couldn't be cut from the audio (${clips.find((clip) => clip.error && !clip.lead)?.error}), so ${cut.length === 1 ? 'it keeps its title' : 'they keep their titles'}.`
 					: '';
-				const paid = `Read ${length(seconds)} with ${speech.name} (${spent ? price(spent) : 'free'}), titled by ${ai.by}${tidy === null ? '' : ` (${price(tidy)})`}.${damaged}`;
+				const bill = charged !== null ? credits(charged) : spent ? price(spent) : 'free';
+				const paid = `Read ${length(seconds)} with ${speech.name} (${bill}), titled by ${ai.by}${tidy === null ? '' : ` (${price(tidy)})`}.${damaged}`;
 				const outcome = named(titles, book.title) ? 'proposed' : titles.some((each, index) => each !== before[index]) ? 'numbers' : 'noTitles';
 				const detail = outcome === 'noTitles' ? paid : `${preview(before, titles)}. ${paid}`;
 				ctx.record({ item: id, title, outcome, detail, before, ...(outcome === 'noTitles' ? {} : { after }) });
@@ -232,6 +242,11 @@ async function read(ctx: JobContext, plan: NonNullable<JobContext['plan']>) {
 		ctx.progress(done + 1, ids.length);
 	}
 }
+
+/** Credits ElevenLabs charged per second of audio on the last reading, in `job_state`, for the next estimates. */
+const RATE = 'creditsPerSecond';
+
+const credits = (n: number) => `${Math.round(n).toLocaleString('en-US')} credits`;
 
 /** Dollars as cents while under a dollar. */
 function price(dollars: number) {

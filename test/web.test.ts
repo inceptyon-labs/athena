@@ -57,8 +57,11 @@ function athena(saved: Parameters<Settings['save']>[0] = {}, env: Record<string,
 		if (String(url) === 'https://api.elevenlabs.io/v1/speech-to-text') {
 			if (new Headers(init?.headers).get('xi-api-key') !== 'eleven-fake-0000') return new Response('', { status: 401 });
 			scribed.push(init?.body as FormData);
-			return Response.json({ text: scribed.length === 1 ? 'Chapter one. The Watsons.' : 'Chapter two. Mr Knightley.' });
+			return Response.json({ text: scribed.length === 1 ? 'Chapter one. The Watsons.' : 'Chapter two. Mr Knightley.' }, { headers: { 'character-cost': '4' } });
 		}
+		if (String(url) === 'https://api.elevenlabs.io/v1/user/subscription')
+			return Response.json({ tier: 'starter', character_count: 843, character_limit: 80_339, next_character_count_reset_unix: 1_798_053_805 });
+		if (String(url).startsWith('https://api.elevenlabs.io/v1/usage/character-stats')) return Response.json({ usage: { STT: [0, 206] } });
 		return plex.fetcher(url, init);
 	}) as typeof fetch;
 	const settings = new Settings(mkdtempSync(join(tmpdir(), 'athena-')), env);
@@ -465,6 +468,8 @@ describe('automations', () => {
 
 		const page = await (await get('/automations', cookie)).text();
 		expect(page).toContain('Titles from the audio');
+		expect(page).toContain('<strong>79,496</strong> of 80,339 ElevenLabs credits left');
+		expect(page).toContain('(Starter plan). Speech to text has used 206 this period.');
 		await post('/automations/audio-titles/run', {}, cookie);
 		await runner.idle();
 		const check = runner.runs(1)[0]?.id;
@@ -479,6 +484,7 @@ describe('automations', () => {
 		expect(scribed.map((form) => form.get('model_id'))).toEqual(['scribe_v3', 'scribe_v3', 'scribe_v3']);
 		const proposal = await (await get(`/automations/runs/${read}`, cookie)).text();
 		expect(proposal).toContain('1 book waits for your approval below');
+		expect(proposal).toContain('with ElevenLabs Scribe (12 credits)');
 		expect(proposal).toContain('Chapter two. Mr Knightley.');
 		expect(proposal).toContain('>Approve<');
 
